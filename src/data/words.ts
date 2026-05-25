@@ -1,0 +1,43 @@
+export const commonWords: string[] = [
+  "the", "be", "to", "of", "and", "a", "in", "that", "have", "it",
+  "for", "not", "on", "with", "he", "as", "you", "do", "at", "this",
+  "but", "his", "by", "from", "they", "we", "say", "her", "she", "or",
+  "an", "will", "my", "one", "all", "would", "there", "their", "what",
+  "so", "up", "out", "if", "about", "who", "get", "which", "go", "me",
+  "when", "make", "can", "like", "time", "no", "just", "him", "know",
+  "take", "people", "into", "year", "your", "good", "some", "could",
+  "them", "see", "other", "than", "then", "now", "look", "only", "come",
+  "its", "over", "think", "also", "back", "after", "use", "two", "how",
+  "our", "work", "first", "well", "way", "even", "new", "want", "because",
+  "any", "these", "give", "day", "most", "us", "great", "between", "need",
+  "large", "often", "hand", "high", "place", "hold", "without", "again",
+  "point", "city", "play", "small", "number", "off", "always", "move",
+  "live", "more", "find", "here", "thing", "lead", "day", "own", "while",
+  "down", "should", "call", "world", "side", "long", "might", "big",
+  "man", "may", "still", "try", "last", "run", "help", "much", "before",
+  "line", "too", "mean", "old", "change", "same", "set", "tell", "boy",
+  "following", "came", "want", "show", "also", "around", "form", "three",
+  "small", "every", "found", "still", "between", "name", "should", "home",
+  "learn", "plant", "cover", "food", "sun", "four", "thought", "let",
+  "keep", "children", "feet", "land", "side", "without", "boy", "once",
+  "animal", "life", "enough", "took", "sometimes", "four", "head", "above",
+  "kind", "began", "almost", "live", "page", "got", "earth", "need",
+  "far", "hand", "high", "place", "hold", "large", "often", "asked",
+  "put", "end", "does", "another", "well", "large", "need", "big", "go",
+  "such", "because", "turn", "here", "why", "went", "men", "read", "need",
+  "land", "different", "home", "us", "move", "try", "kind", "hand", "picture",
+  "again", "change", "off", "play", "spell", "air", "away", "animal",
+  "house", "point", "page", "letter", "mother", "answer", "found", "study",
+  "still", "learn", "should", "America", "world", "high", "every", "near",
+  "add", "food", "between", "own", "below", "country", "plant", "last",
+  "school", "father", "keep", "tree", "never", "start", "city", "earth",
+  "eye", "light", "thought", "head", "under", "story", "saw", "left",
+  "few", "while", "along", "might", "close", "something", "seem", "next",
+  "hard", "open", "example", "begin", "life", "always", "those", "both",
+  "paper", "together", "got", "group", "often", "run", "important", "until",
+];
+
+export function generateWordSet(count: number = 30): string {
+  const shuffled = [...commonWords].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count).join(" ");
+}
