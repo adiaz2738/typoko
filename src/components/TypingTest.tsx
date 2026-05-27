@@ -23,6 +23,12 @@ interface CharData {
   state: CharState;
 }
 
+// Approximate line height for text-xl + leading-relaxed (20px * 1.625 = 32.5px)
+const LINE_HEIGHT_PX = 33;
+const VISIBLE_LINES = 3;
+const VISIBLE_HEIGHT_PX = LINE_HEIGHT_PX * VISIBLE_LINES; // 99px
+const CONTAINER_HEIGHT_PX = VISIBLE_HEIGHT_PX + 48; // + p-6 top + bottom padding
+
 function buildCharData(text: string): CharData[] {
   return text.split("").map((char, i) => ({
     char,
@@ -37,7 +43,7 @@ function calcWpm(correctChars: number, elapsedSeconds: number): number {
 
 function calcAccuracy(correct: number, total: number): number {
   if (total === 0) return 100;
-  return Math.round((correct / total) * 100);
+  return Math.min(100, Math.max(0, Math.round((correct / total) * 100)));
 }
 
 function formatTimer(seconds: number, countdown: boolean, limit: number | null): string {
@@ -61,28 +67,44 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
   const [currentQuote, setCurrentQuote] = useState<Quote | null>(null);
   const [liveWpm, setLiveWpm] = useState(0);
   const [liveAccuracy, setLiveAccuracy] = useState(100);
+  const [scrollY, setScrollY] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef(0);
   const correctRef = useRef(0);
+  const incorrectRef = useRef(0);
   const totalRef = useRef(0);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const charRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const scrollYRef = useRef(0);
+  const currentQuoteRef = useRef<Quote | null>(null);
+  const currentTextRef = useRef<string>("");
+  const startTimeRef = useRef<number>(0);
+  const finishedElapsedRef = useRef<number>(0);
 
   const countdown = timerMode !== null;
   const isTimedMode = timerMode !== null;
 
-  const loadText = useCallback(() => {
+  const loadText = useCallback((keepCurrent = false) => {
     let text: string;
     let quote: Quote | null = null;
 
-    if (textMode === "quotes") {
+    if (keepCurrent && currentTextRef.current) {
+      text = currentTextRef.current;
+      quote = currentQuoteRef.current;
+    } else if (textMode === "quotes") {
       quote = getRandomQuote();
       text = quote.text;
     } else {
-      text = generateWordSet(40);
+      // Generate enough words to cover the full timer at 120 WPM (fast typist)
+      const wordCount = timerMode !== null
+        ? Math.max(60, Math.ceil((timerMode / 60) * 120))
+        : 60;
+      text = generateWordSet(wordCount);
     }
 
+    currentQuoteRef.current = quote;
+    currentTextRef.current = text;
     setCurrentQuote(quote);
     setChars(buildCharData(text));
     setCurrentIndex(0);
@@ -93,32 +115,36 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
     setTotalTyped(0);
     setLiveWpm(0);
     setLiveAccuracy(100);
+    scrollYRef.current = 0;
+    setScrollY(0);
     elapsedRef.current = 0;
     correctRef.current = 0;
+    incorrectRef.current = 0;
     totalRef.current = 0;
+    finishedElapsedRef.current = 0;
 
     if (timerRef.current) clearInterval(timerRef.current);
-  }, [textMode]);
+  }, [textMode, timerMode]);
 
   useEffect(() => {
     loadText();
   }, [loadText]);
 
-  // Focus input on mount and on click anywhere
   useEffect(() => {
     inputRef.current?.focus();
   }, [chars]);
 
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
+    startTimeRef.current = performance.now();
     timerRef.current = setInterval(() => {
       elapsedRef.current += 1;
       setElapsed(elapsedRef.current);
       setLiveWpm(calcWpm(correctRef.current, elapsedRef.current));
 
-      // Timed mode: auto-finish when countdown hits 0
       if (isTimedMode && timerMode !== null && elapsedRef.current >= timerMode) {
         clearInterval(timerRef.current!);
+        finishedElapsedRef.current = timerMode;
         setFinished(true);
       }
     }, 1000);
@@ -126,10 +152,9 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      // Tab to restart
       if (e.key === "Tab") {
         e.preventDefault();
-        loadText();
+        loadText(false);
         return;
       }
 
@@ -140,80 +165,103 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
         startTimer();
       }
 
+      if (e.key === "Backspace") {
+        if (currentIndex === 0) return;
+        const prevIdx = currentIndex - 1;
+        const prevChar = chars[prevIdx];
+
+        // Mutate refs outside the updater — React Strict Mode calls updaters twice,
+        // which would double-decrement if mutations were inside.
+        if (prevChar.state === "correct" || prevChar.state === "incorrect") {
+          totalRef.current = Math.max(0, totalRef.current - 1);
+        }
+        if (prevChar.state === "correct") {
+          correctRef.current = Math.max(0, correctRef.current - 1);
+        }
+
+        setChars((prev) => {
+          const next = [...prev];
+          next[currentIndex] = { ...next[currentIndex], state: "pending" };
+          next[prevIdx] = { char: next[prevIdx].char, state: "current" };
+          return next;
+        });
+
+        setCurrentIndex(prevIdx);
+        setTotalTyped(totalRef.current);
+        setCorrectChars(correctRef.current);
+        setLiveAccuracy(calcAccuracy(correctRef.current, correctRef.current + incorrectRef.current));
+        return;
+      }
+
+      if (e.key.length !== 1) return;
+
+      const expected = chars[currentIndex]?.char;
+      if (expected === undefined) return;
+      const isCorrect = e.key === expected;
+
+      totalRef.current += 1;
+      if (isCorrect) correctRef.current += 1;
+      else incorrectRef.current += 1;
+
+      const nextIdx = currentIndex + 1;
+      const isFinished = nextIdx >= chars.length;
+
       setChars((prev) => {
         const next = [...prev];
-        const idx = currentIndex;
-
-        if (e.key === "Backspace") {
-          if (idx === 0) return prev;
-          const prevIdx = idx - 1;
-          // Unmark the char we're backing over (clear current marker)
-          next[idx] = { ...next[idx], state: "pending" };
-          // Restore previous char to "current"
-          next[prevIdx] = { char: next[prevIdx].char, state: "current" };
-          setCurrentIndex(prevIdx);
-          return next;
-        }
-
-        // Only handle printable single chars
-        if (e.key.length !== 1) return prev;
-
-        const expected = next[idx].char;
-        const isCorrect = e.key === expected;
-
-        next[idx] = { char: expected, state: isCorrect ? "correct" : "incorrect" };
-
-        totalRef.current += 1;
-        setTotalTyped((t) => t + 1);
-
-        if (isCorrect) {
-          correctRef.current += 1;
-          setCorrectChars((c) => c + 1);
-        }
-
-        setLiveAccuracy(calcAccuracy(correctRef.current, totalRef.current));
-
-        const nextIdx = idx + 1;
-
-        if (nextIdx >= next.length) {
-          // Finished all characters
-          if (timerRef.current) clearInterval(timerRef.current);
-          setFinished(true);
-          return next;
-        }
-
-        next[nextIdx] = { ...next[nextIdx], state: "current" };
-        setCurrentIndex(nextIdx);
+        next[currentIndex] = { char: expected, state: isCorrect ? "correct" : "incorrect" };
+        if (!isFinished) next[nextIdx] = { ...next[nextIdx], state: "current" };
         return next;
       });
+
+      setTotalTyped(totalRef.current);
+      setCorrectChars(correctRef.current);
+      setLiveAccuracy(calcAccuracy(correctRef.current, correctRef.current + incorrectRef.current));
+
+      if (isFinished) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        finishedElapsedRef.current = startTimeRef.current > 0
+          ? (performance.now() - startTimeRef.current) / 1000
+          : elapsedRef.current;
+        setCurrentIndex(nextIdx);
+        setFinished(true);
+      } else {
+        setCurrentIndex(nextIdx);
+      }
     },
-    [currentIndex, finished, started, startTimer, loadText]
+    [currentIndex, finished, started, startTimer, loadText, chars]
   );
 
-  // Scroll current char into view
-  const charRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  // Page through text in VISIBLE_HEIGHT_PX chunks as the current char advances
   useEffect(() => {
-    charRefs.current[currentIndex]?.scrollIntoView({
-      block: "nearest",
-      behavior: "smooth",
-    });
+    const charEl = charRefs.current[currentIndex];
+    if (!charEl) return;
+
+    const charTop = charEl.offsetTop;
+    const page = Math.floor(charTop / VISIBLE_HEIGHT_PX);
+    const newScrollY = page * VISIBLE_HEIGHT_PX;
+
+    if (newScrollY !== scrollYRef.current) {
+      scrollYRef.current = newScrollY;
+      setScrollY(newScrollY);
+    }
   }, [currentIndex]);
 
-  const incorrectCount = totalTyped - correctChars;
+  const incorrectCount = incorrectRef.current;
   const timerLabel = formatTimer(elapsed, countdown, timerMode);
   const timerIsLow = countdown && timerMode !== null && timerMode - elapsed <= 10;
 
   if (finished) {
+    const finalElapsed = Math.max(1, finishedElapsedRef.current || elapsed);
     return (
       <ResultsScreen
-        wpm={calcWpm(correctChars, elapsed)}
-        accuracy={calcAccuracy(correctChars, totalTyped)}
+        wpm={calcWpm(correctChars, finalElapsed)}
+        accuracy={calcAccuracy(correctChars, correctChars + incorrectRef.current)}
         elapsedSeconds={elapsed}
         correctChars={correctChars}
         incorrectChars={incorrectCount}
         quote={currentQuote}
-        onRetry={loadText}
-        onNext={loadText}
+        onRetry={() => loadText(true)}
+        onNext={() => loadText(false)}
       />
     );
   }
@@ -235,15 +283,21 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
         </div>
       </div>
 
-      {/* Typing area */}
+      {/* Typing area — fixed height, clips overflow, inner div slides up */}
       <div
-        ref={containerRef}
-        className="relative bg-surface border border-border rounded-2xl p-6 cursor-text max-h-48 overflow-y-auto"
+        className="relative bg-surface border border-border rounded-2xl px-6 pt-6 pb-6 cursor-text overflow-hidden"
+        style={{ height: `${CONTAINER_HEIGHT_PX}px` }}
         onClick={() => inputRef.current?.focus()}
       >
-        <div className="font-mono text-xl leading-relaxed tracking-wide select-none">
+        <div
+          className="relative font-mono text-xl leading-relaxed tracking-wide select-none"
+          style={{
+            transform: `translateY(-${scrollY}px)`,
+            transition: scrollY === 0 ? "none" : "transform 180ms ease",
+          }}
+        >
           {chars.map((c, i) => {
-            let color = "text-muted"; // pending
+            let color = "text-muted";
             if (c.state === "correct") color = "text-correct";
             else if (c.state === "incorrect") color = "text-incorrect";
             else if (c.state === "current") color = "text-current";
@@ -262,13 +316,13 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
                     aria-hidden
                   />
                 )}
-                {c.char === " " ? " " : c.char}
+                {c.char}
               </span>
             );
           })}
         </div>
 
-        {/* Hidden real input */}
+        {/* Hidden input captures all keystrokes */}
         <input
           ref={inputRef}
           onKeyDown={handleKeyDown}
@@ -278,13 +332,11 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          readOnly={false}
           value=""
           onChange={() => {}}
         />
       </div>
 
-      {/* Hint */}
       {!started && (
         <p className="text-center text-subtle text-xs font-mono fade-in">
           start typing to begin &nbsp;·&nbsp;{" "}

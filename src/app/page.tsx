@@ -8,13 +8,13 @@ import TypingTest from "@/components/TypingTest";
 export default function Home() {
   const [textMode, setTextMode] = useState<TextMode>("quotes");
   const [timerMode, setTimerMode] = useState<TimerMode>(60);
+  const [resetKey, setResetKey] = useState(0);
 
-  // Key forces full remount of TypingTest when mode changes
-  const testKey = `${textMode}-${timerMode}`;
+  const testKey = `${textMode}-${timerMode}-${resetKey}`;
 
   return (
     <div className="min-h-screen bg-bg flex flex-col">
-      <Header />
+      <Header onLogoClick={() => setResetKey((k) => k + 1)} />
 
       <main className="flex-1 flex flex-col items-center justify-center gap-10 px-4 py-12">
         <ModeSelector

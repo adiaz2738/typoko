@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Quote } from "@/data/quotes";
 
 interface ResultsProps {
@@ -44,6 +45,20 @@ export default function ResultsScreen({
   onRetry,
   onNext,
 }: ResultsProps) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        onNext();
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        onRetry();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onNext, onRetry]);
+
   return (
     <div className="fade-in flex flex-col items-center gap-8 w-full max-w-2xl mx-auto px-4">
       {/* Main stats */}
@@ -71,7 +86,7 @@ export default function ResultsScreen({
       {quote && (
         <div className="w-full bg-surface border border-border rounded-xl p-5 text-center">
           <p className="text-text/70 text-sm font-mono italic mb-2">
-            &ldquo;{quote.text}&rdquo;
+            &ldquo;{quote.text.slice(0, 120)}{quote.text.length > 120 ? "…" : ""}&rdquo;
           </p>
           <p className="text-subtle text-xs">— {quote.author}</p>
           <a
@@ -102,11 +117,14 @@ export default function ResultsScreen({
       </div>
 
       <p className="text-subtle text-xs font-mono">
-        press{" "}
         <kbd className="bg-surface border border-border px-1.5 py-0.5 rounded text-text">
           Tab
         </kbd>{" "}
-        to restart
+        retry &nbsp;·&nbsp;{" "}
+        <kbd className="bg-surface border border-border px-1.5 py-0.5 rounded text-text">
+          Enter
+        </kbd>{" "}
+        next
       </p>
     </div>
   );
