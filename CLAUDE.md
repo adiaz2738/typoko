@@ -91,6 +91,7 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 - User settings (font size, theme, sound effects)
 - Streak tracking
 - Social sharing of results
+- Hard/Technical mode: symbol and number-heavy content (equations, code snippets, financial data) as a separate optional mode
 
 ### Phase 3 (Competition)
 
@@ -111,9 +112,16 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 - Premium accounts (ad-free, extra stats, custom themes)
 - Mobile app if traffic justifies it
 
+## Quotes Database Notes
+
+- quotes.ts requires an id field for every entry — this is mandatory or it breaks the build
+- Each quote needs: id (sequential number), text, author, source, affiliateLink
+- Short quotes (under 100 words) should be avoided — they end too quickly for timed tests
+
 ## Pending Fixes
 
-- Accuracy always shows 100% even when user makes mistakes. Fix: add a new ref called incorrectRef to track incorrect keystrokes separately. In handleKeyDown, after "if (isCorrect) correctRef.current += 1;" add "else incorrectRef.current += 1;". Use incorrectRef for error count display and accuracy calculation. Reset incorrectRef.current = 0 in loadText where other refs are reset.
 - WPM still feels slightly inflated but is lower priority than accuracy fix.
 - Unlimited and 5min mode: when passage ends, seamlessly chain to a new random passage without interrupting typing flow.
+- For quotes over 500 words, start at a random sentence/paragraph rather than always from the beginning. This adds variety for repeated sessions with the same long text.
+- For quotes over 500 words, randomize the starting point: 70% chance of starting at a random sentence, 30% chance of starting from the beginning. The starting point must land at the beginning of a sentence (after a period). Short quotes under 300 words always start from the beginning.
 
