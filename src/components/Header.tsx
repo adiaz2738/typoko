@@ -17,7 +17,7 @@ export default function Header({ onLogoClick }: HeaderProps) {
       </div>
       <nav className="flex items-center gap-6 text-sm text-subtle">
         <span className="text-subtle/60 font-mono text-xs">
-          type. challenge. learn.
+          read. type. learn.
         </span>
       </nav>
     </header>

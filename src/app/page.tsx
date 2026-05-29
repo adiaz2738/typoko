@@ -31,7 +31,7 @@ export default function Home() {
       </main>
 
       <footer className="py-4 text-center text-xs text-muted font-mono border-t border-border">
-        typoko &copy; {new Date().getFullYear()} &nbsp;·&nbsp; less test. more challenge.
+        typoko &copy; {new Date().getFullYear()} &nbsp;·&nbsp; real literature. real challenge.
       </footer>
     </div>
   );
