@@ -14,6 +14,7 @@ import ResultsScreen from "./ResultsScreen";
 interface TypingTestProps {
   textMode: TextMode;
   timerMode: TimerMode;
+  flawlessMode: boolean;
 }
 
 type CharState = "pending" | "correct" | "incorrect" | "current";
@@ -28,6 +29,10 @@ const LINE_HEIGHT_PX = 33;
 const VISIBLE_LINES = 3;
 const VISIBLE_HEIGHT_PX = LINE_HEIGHT_PX * VISIBLE_LINES; // 99px
 const CONTAINER_HEIGHT_PX = VISIBLE_HEIGHT_PX + 48; // + p-6 top + bottom padding
+
+// Preload the next passage when this many chars remain in the current one (~25 words).
+// This ensures the content is already rendered before the typist reaches the boundary.
+const PRELOAD_CHARS_THRESHOLD = 150;
 
 function buildCharData(text: string): CharData[] {
   return text.split("").map((char, i) => ({
@@ -56,7 +61,25 @@ function formatTimer(seconds: number, countdown: boolean, limit: number | null):
   return display.toString();
 }
 
-export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
+// For quotes > 500 words: 70% chance to start at a random sentence boundary.
+// Quotes <= 500 words always start from the beginning.
+function getTextWithRandomStart(text: string): string {
+  const wordCount = text.trim().split(/\s+/).length;
+  if (wordCount <= 500 || Math.random() > 0.7) return text;
+
+  const positions: number[] = [];
+  const re = /[.!?]\s+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const pos = m.index + m[0].length;
+    if (pos < text.length - 100) positions.push(pos);
+  }
+
+  if (positions.length === 0) return text;
+  return text.slice(positions[Math.floor(Math.random() * positions.length)]);
+}
+
+export default function TypingTest({ textMode, timerMode, flawlessMode }: TypingTestProps) {
   const [chars, setChars] = useState<CharData[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [started, setStarted] = useState(false);
@@ -68,6 +91,8 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
   const [liveWpm, setLiveWpm] = useState(0);
   const [liveAccuracy, setLiveAccuracy] = useState(100);
   const [scrollY, setScrollY] = useState(0);
+  const [flawlessFailed, setFlawlessFailed] = useState(false);
+  const [flawlessCharsCompleted, setFlawlessCharsCompleted] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -81,6 +106,9 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
   const currentTextRef = useRef<string>("");
   const startTimeRef = useRef<number>(0);
   const finishedElapsedRef = useRef<number>(0);
+  // Tracks total planned content length (grows as passages are preloaded).
+  // Used to trigger preloading at the right time regardless of stale closure state.
+  const plannedEndRef = useRef(0);
 
   const countdown = timerMode !== null;
   const isTimedMode = timerMode !== null;
@@ -94,15 +122,15 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
       quote = currentQuoteRef.current;
     } else if (textMode === "quotes") {
       quote = getRandomQuote();
-      text = quote.text;
+      text = getTextWithRandomStart(quote.text);
     } else {
-      // Generate enough words to cover the full timer at 120 WPM (fast typist)
       const wordCount = timerMode !== null
         ? Math.max(60, Math.ceil((timerMode / 60) * 120))
         : 60;
       text = generateWordSet(wordCount);
     }
 
+    plannedEndRef.current = text.length;
     currentQuoteRef.current = quote;
     currentTextRef.current = text;
     setCurrentQuote(quote);
@@ -115,6 +143,8 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
     setTotalTyped(0);
     setLiveWpm(0);
     setLiveAccuracy(100);
+    setFlawlessFailed(false);
+    setFlawlessCharsCompleted(0);
     scrollYRef.current = 0;
     setScrollY(0);
     elapsedRef.current = 0;
@@ -203,13 +233,73 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
       if (isCorrect) correctRef.current += 1;
       else incorrectRef.current += 1;
 
+      // Flawless mode: end immediately on first mistake
+      if (flawlessMode && !isCorrect) {
+        setChars((prev) => {
+          const next = [...prev];
+          next[currentIndex] = { char: expected, state: "incorrect" };
+          return next;
+        });
+        setTotalTyped(totalRef.current);
+        setCorrectChars(correctRef.current);
+        setLiveAccuracy(calcAccuracy(correctRef.current, correctRef.current + incorrectRef.current));
+        if (timerRef.current) clearInterval(timerRef.current);
+        finishedElapsedRef.current = startTimeRef.current > 0
+          ? (performance.now() - startTimeRef.current) / 1000
+          : elapsedRef.current;
+        setFlawlessFailed(true);
+        setFlawlessCharsCompleted(currentIndex);
+        setFinished(true);
+        return;
+      }
+
       const nextIdx = currentIndex + 1;
-      const isFinished = nextIdx >= chars.length;
+      const isChaining = timerMode === null || timerMode === 300;
+
+      // Preload the next passage when within PRELOAD_CHARS_THRESHOLD chars of plannedEndRef.
+      // plannedEndRef tracks total content length (including all prior preloads) synchronously,
+      // so it stays accurate even though chars.length is stale inside this closure.
+      // After appending, plannedEndRef jumps forward by the new passage length, suppressing
+      // further preloads until the typist approaches the new end.
+      let preloadChars: CharData[] = [];
+
+      if (isChaining && plannedEndRef.current - currentIndex <= PRELOAD_CHARS_THRESHOLD) {
+        let chainText = " "; // single space separates passages naturally
+        let chainQuote: Quote | null = null;
+
+        if (textMode === "quotes") {
+          chainQuote = getRandomQuote();
+          chainText += getTextWithRandomStart(chainQuote.text);
+        } else {
+          const wc = timerMode !== null ? Math.max(60, Math.ceil((timerMode / 60) * 120)) : 60;
+          chainText += generateWordSet(wc);
+        }
+
+        preloadChars = chainText.split("").map(char => ({
+          char,
+          state: "pending" as CharState,
+        }));
+        plannedEndRef.current += chainText.length;
+        if (chainQuote) currentQuoteRef.current = chainQuote;
+      }
 
       setChars((prev) => {
         const next = [...prev];
         next[currentIndex] = { char: expected, state: isCorrect ? "correct" : "incorrect" };
-        if (!isFinished) next[nextIdx] = { ...next[nextIdx], state: "current" };
+
+        if (preloadChars.length > 0) {
+          // Append new content and mark the next position as current.
+          // nextIdx may equal prev.length (stale-isFinished edge case) — combined handles it.
+          const combined = [...next, ...preloadChars];
+          combined[nextIdx] = { ...combined[nextIdx], state: "current" };
+          return combined;
+        }
+
+        // Use prev.length (actual current state) not stale chars.length to detect end correctly.
+        // This handles the case where a prior preload already extended the array.
+        if (nextIdx < prev.length) {
+          next[nextIdx] = { ...next[nextIdx], state: "current" };
+        }
         return next;
       });
 
@@ -217,7 +307,10 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
       setCorrectChars(correctRef.current);
       setLiveAccuracy(calcAccuracy(correctRef.current, correctRef.current + incorrectRef.current));
 
-      if (isFinished) {
+      // In chaining modes the timer drives the finish; cursor just keeps advancing.
+      // In non-chaining modes, end when the passage is exhausted.
+      const isFinished = nextIdx >= chars.length; // stale but only used for non-chaining finish
+      if (!isChaining && isFinished && preloadChars.length === 0) {
         if (timerRef.current) clearInterval(timerRef.current);
         finishedElapsedRef.current = startTimeRef.current > 0
           ? (performance.now() - startTimeRef.current) / 1000
@@ -228,7 +321,7 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
         setCurrentIndex(nextIdx);
       }
     },
-    [currentIndex, finished, started, startTimer, loadText, chars]
+    [currentIndex, finished, started, startTimer, loadText, chars, flawlessMode, textMode, timerMode]
   );
 
   // Page through text in VISIBLE_HEIGHT_PX chunks as the current char advances
@@ -262,6 +355,8 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
         quote={currentQuote}
         onRetry={() => loadText(true)}
         onNext={() => loadText(false)}
+        flawlessFailed={flawlessFailed}
+        charsBeforeFail={flawlessCharsCompleted}
       />
     );
   }
@@ -273,6 +368,11 @@ export default function TypingTest({ textMode, timerMode }: TypingTestProps) {
         <div className="flex items-center gap-6">
           <StatPill label="wpm" value={liveWpm.toString()} />
           <StatPill label="acc" value={`${liveAccuracy}%`} />
+          {flawlessMode && (
+            <span className="text-incorrect text-xs font-mono font-semibold uppercase tracking-widest">
+              flawless
+            </span>
+          )}
         </div>
         <div
           className={`text-2xl font-bold font-mono transition-colors ${

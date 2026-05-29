@@ -12,21 +12,24 @@ interface ResultsProps {
   quote: Quote | null;
   onRetry: () => void;
   onNext: () => void;
+  flawlessFailed?: boolean;
+  charsBeforeFail?: number;
 }
 
 function formatTime(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
   const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  const s = Math.round(seconds % 60);
   return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
 function getWpmLabel(wpm: number): string {
-  if (wpm >= 120) return "Exceptional";
-  if (wpm >= 80) return "Advanced";
-  if (wpm >= 50) return "Proficient";
-  if (wpm >= 30) return "Average";
-  return "Beginner";
+  if (wpm >= 101) return "dayum.";
+  if (wpm >= 91) return "impressive.";
+  if (wpm >= 71) return "ok, I see you.";
+  if (wpm >= 51) return "not bad.";
+  if (wpm >= 31) return "you'll get there.";
+  return "oof.";
 }
 
 function getAccuracyColor(accuracy: number): string {
@@ -44,6 +47,8 @@ export default function ResultsScreen({
   quote,
   onRetry,
   onNext,
+  flawlessFailed,
+  charsBeforeFail = 0,
 }: ResultsProps) {
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -58,6 +63,90 @@ export default function ResultsScreen({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [onNext, onRetry]);
+
+  const actions = (
+    <div className="flex items-center gap-4">
+      <button
+        onClick={onRetry}
+        className="px-6 py-2.5 bg-surface border border-border rounded-lg text-text font-mono text-sm hover:border-accent hover:text-accent transition-colors"
+      >
+        retry
+      </button>
+      <button
+        onClick={onNext}
+        className="px-6 py-2.5 bg-accent text-bg rounded-lg font-mono text-sm font-semibold hover:bg-accent/90 transition-colors"
+      >
+        next →
+      </button>
+    </div>
+  );
+
+  const keyHints = (
+    <p className="text-subtle text-xs font-mono">
+      <kbd className="bg-surface border border-border px-1.5 py-0.5 rounded text-text">
+        Tab
+      </kbd>{" "}
+      retry &nbsp;·&nbsp;{" "}
+      <kbd className="bg-surface border border-border px-1.5 py-0.5 rounded text-text">
+        Enter
+      </kbd>{" "}
+      next
+    </p>
+  );
+
+  if (flawlessFailed) {
+    const estimatedWords = Math.floor(charsBeforeFail / 5);
+    return (
+      <div className="fade-in flex flex-col items-center gap-8 w-full max-w-2xl mx-auto px-4">
+        {/* Flawless fail header */}
+        <div className="text-center">
+          <p className="text-incorrect text-xs font-mono uppercase tracking-widest mb-3">
+            flawless — failed
+          </p>
+          <p className="text-text text-5xl font-bold font-mono">{charsBeforeFail}</p>
+          <p className="text-subtle text-sm font-mono mt-2">
+            characters &nbsp;·&nbsp; ~{estimatedWords} words before first mistake
+          </p>
+        </div>
+
+        {/* Secondary stats */}
+        <div className="grid grid-cols-2 gap-6 w-full">
+          <StatCard
+            label="wpm"
+            value={wpm.toString()}
+            sub={getWpmLabel(wpm)}
+            highlight
+          />
+          <StatCard
+            label="time"
+            value={formatTime(elapsedSeconds)}
+            sub={`${correctChars} correct`}
+          />
+        </div>
+
+        {/* Quote attribution */}
+        {quote && (
+          <div className="w-full bg-surface border border-border rounded-xl p-5 text-center">
+            <p className="text-text/70 text-sm font-mono italic mb-2">
+              &ldquo;{quote.text.slice(0, 120)}{quote.text.length > 120 ? "…" : ""}&rdquo;
+            </p>
+            <p className="text-subtle text-xs">— {quote.author}</p>
+            <a
+              href={quote.affiliateLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-2 text-accent text-xs hover:underline"
+            >
+              {quote.source} →
+            </a>
+          </div>
+        )}
+
+        {actions}
+        {keyHints}
+      </div>
+    );
+  }
 
   return (
     <div className="fade-in flex flex-col items-center gap-8 w-full max-w-2xl mx-auto px-4">
@@ -100,32 +189,8 @@ export default function ResultsScreen({
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onRetry}
-          className="px-6 py-2.5 bg-surface border border-border rounded-lg text-text font-mono text-sm hover:border-accent hover:text-accent transition-colors"
-        >
-          retry
-        </button>
-        <button
-          onClick={onNext}
-          className="px-6 py-2.5 bg-accent text-bg rounded-lg font-mono text-sm font-semibold hover:bg-accent/90 transition-colors"
-        >
-          next →
-        </button>
-      </div>
-
-      <p className="text-subtle text-xs font-mono">
-        <kbd className="bg-surface border border-border px-1.5 py-0.5 rounded text-text">
-          Tab
-        </kbd>{" "}
-        retry &nbsp;·&nbsp;{" "}
-        <kbd className="bg-surface border border-border px-1.5 py-0.5 rounded text-text">
-          Enter
-        </kbd>{" "}
-        next
-      </p>
+      {actions}
+      {keyHints}
     </div>
   );
 }

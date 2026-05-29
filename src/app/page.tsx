@@ -8,9 +8,10 @@ import TypingTest from "@/components/TypingTest";
 export default function Home() {
   const [textMode, setTextMode] = useState<TextMode>("quotes");
   const [timerMode, setTimerMode] = useState<TimerMode>(60);
+  const [flawlessMode, setFlawlessMode] = useState(false);
   const [resetKey, setResetKey] = useState(0);
 
-  const testKey = `${textMode}-${timerMode}-${resetKey}`;
+  const testKey = `${textMode}-${timerMode}-${flawlessMode ? "f" : ""}-${resetKey}`;
 
   return (
     <div className="min-h-screen bg-bg flex flex-col">
@@ -20,15 +21,17 @@ export default function Home() {
         <ModeSelector
           textMode={textMode}
           timerMode={timerMode}
+          flawlessMode={flawlessMode}
           onTextModeChange={setTextMode}
           onTimerModeChange={setTimerMode}
+          onFlawlessModeChange={setFlawlessMode}
         />
 
-        <TypingTest key={testKey} textMode={textMode} timerMode={timerMode} />
+        <TypingTest key={testKey} textMode={textMode} timerMode={timerMode} flawlessMode={flawlessMode} />
       </main>
 
       <footer className="py-4 text-center text-xs text-muted font-mono border-t border-border">
-        typoko &copy; {new Date().getFullYear()} &nbsp;·&nbsp; made for fast fingers
+        typoko &copy; {new Date().getFullYear()} &nbsp;·&nbsp; less test. more challenge.
       </footer>
     </div>
   );

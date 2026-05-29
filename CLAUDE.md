@@ -120,10 +120,5 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 
 ## Pending Fixes
 
-- WPM still feels slightly inflated but is lower priority than accuracy fix.
-- Unlimited and 5min mode: when passage ends, seamlessly chain to a new random passage without interrupting typing flow.
-- For quotes over 500 words, start at a random sentence/paragraph rather than always from the beginning. This adds variety for repeated sessions with the same long text.
-- For quotes over 500 words, randomize the starting point: 70% chance of starting at a random sentence, 30% chance of starting from the beginning. The starting point must land at the beginning of a sentence (after a period). Short quotes under 300 words always start from the beginning.
-- Flawless mode: available across all time modes and content types (quotes/words). Test ends immediately upon first mistake. Display a distinct result screen showing how far the user got before failing.
-- Footer text "typoko © 2026  ·  made for fast fingers" should be changed to "Typing test? More like typing challenge"
+- Passage chaining: preload the next passage when within the last 20-30 words of the current passage so the transition is seamless with no pause or required space after the last character. Transition should be invisible to the typist.
 
