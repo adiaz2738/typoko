@@ -16,6 +16,7 @@ interface TypingTestProps {
   timerMode: TimerMode;
   flawlessMode: boolean;
   initialQuote?: Quote;
+  resultsNote?: string;
 }
 
 type CharState = "pending" | "correct" | "incorrect" | "current";
@@ -80,7 +81,7 @@ function getTextWithRandomStart(text: string): string {
   return text.slice(positions[Math.floor(Math.random() * positions.length)]);
 }
 
-export default function TypingTest({ textMode, timerMode, flawlessMode, initialQuote }: TypingTestProps) {
+export default function TypingTest({ textMode, timerMode, flawlessMode, initialQuote, resultsNote }: TypingTestProps) {
   const [chars, setChars] = useState<CharData[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [started, setStarted] = useState(false);
@@ -365,6 +366,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
         onNext={() => loadText(false)}
         flawlessFailed={flawlessFailed}
         charsBeforeFail={flawlessCharsCompleted}
+        note={resultsNote}
       />
     );
   }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { quotes } from "@/data/quotes";
 import SiteHeader from "@/components/SiteHeader";
+import LibrarySearch from "./LibrarySearch";
 
 export const metadata: Metadata = {
   title: "library | Typoko",
@@ -9,27 +10,9 @@ export const metadata: Metadata = {
     "Browse all passages and authors on Typoko. Type great literature by Poe, Orwell, Austen, Milton, and more.",
 };
 
-function groupByAuthor() {
-  const map = new Map<
-    string,
-    { author: string; authorSlug: string; passages: typeof quotes }
-  >();
-  for (const q of quotes) {
-    if (!map.has(q.authorSlug)) {
-      map.set(q.authorSlug, {
-        author: q.author,
-        authorSlug: q.authorSlug,
-        passages: [],
-      });
-    }
-    map.get(q.authorSlug)!.passages.push(q);
-  }
-  return Array.from(map.values()).sort((a, b) => a.author.localeCompare(b.author));
-}
+const authorCount = new Set(quotes.map((q) => q.authorSlug)).size;
 
 export default function LibraryPage() {
-  const authors = groupByAuthor();
-
   return (
     <div className="min-h-screen bg-bg flex flex-col">
       <SiteHeader />
@@ -39,33 +22,11 @@ export default function LibraryPage() {
           <div className="flex flex-col gap-1">
             <h1 className="font-mono text-xl text-text font-bold">library</h1>
             <p className="font-mono text-xs text-muted">
-              {quotes.length} passages &nbsp;·&nbsp; {authors.length} authors
+              {quotes.length} passages &nbsp;·&nbsp; {authorCount} authors
             </p>
           </div>
 
-          <div className="flex flex-col gap-8">
-            {authors.map(({ author, authorSlug, passages }) => (
-              <div key={authorSlug} className="flex flex-col gap-3">
-                <Link
-                  href={`/type/${authorSlug}`}
-                  className="font-mono text-sm text-text font-bold hover:text-accent transition-colors w-fit"
-                >
-                  {author}
-                </Link>
-                <div className="flex flex-col gap-2 pl-4 border-l border-border">
-                  {passages.map((q) => (
-                    <Link
-                      key={q.id}
-                      href={`/type/${q.authorSlug}/${q.passageSlug}`}
-                      className="font-mono text-xs text-subtle hover:text-text transition-colors w-fit"
-                    >
-                      {q.source}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+          <LibrarySearch />
 
           <Link
             href="/"

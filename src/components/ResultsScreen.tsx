@@ -14,6 +14,7 @@ interface ResultsProps {
   onNext: () => void;
   flawlessFailed?: boolean;
   charsBeforeFail?: number;
+  note?: string;
 }
 
 function formatTime(seconds: number): string {
@@ -49,6 +50,7 @@ export default function ResultsScreen({
   onNext,
   flawlessFailed,
   charsBeforeFail = 0,
+  note,
 }: ResultsProps) {
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -144,6 +146,9 @@ export default function ResultsScreen({
 
         {actions}
         {keyHints}
+        {note && (
+          <p className="font-mono text-xs text-text">{note}</p>
+        )}
       </div>
     );
   }
@@ -191,6 +196,9 @@ export default function ResultsScreen({
 
       {actions}
       {keyHints}
+      {note && (
+        <p className="font-mono text-xs text-text">{note}</p>
+      )}
     </div>
   );
 }

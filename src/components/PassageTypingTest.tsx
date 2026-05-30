@@ -5,9 +5,10 @@ import TypingTest from "./TypingTest";
 
 interface Props {
   quote: Quote;
+  resultsNote?: string;
 }
 
-export default function PassageTypingTest({ quote }: Props) {
+export default function PassageTypingTest({ quote, resultsNote }: Props) {
   return (
     <TypingTest
       key={quote.id}
@@ -15,6 +16,7 @@ export default function PassageTypingTest({ quote }: Props) {
       timerMode={60}
       flawlessMode={false}
       initialQuote={quote}
+      resultsNote={resultsNote}
     />
   );
 }

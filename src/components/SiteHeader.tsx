@@ -11,6 +11,12 @@ export default function SiteHeader() {
       </Link>
       <nav className="flex items-center gap-8">
         <Link
+          href="/daily"
+          className="font-mono text-xs text-muted hover:text-subtle transition-colors"
+        >
+          daily
+        </Link>
+        <Link
           href="/library"
           className="font-mono text-xs text-muted hover:text-subtle transition-colors"
         >
