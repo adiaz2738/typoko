@@ -72,26 +72,34 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 
 ## Roadmap
 
-### Phase 1 (Current - Launch)
+### Phase 1 (Complete - Launched)
 
 - Core typing test with quotes and words modes
 - Timed modes: 30s, 60s, 90s, 5min, untimed
-- User accounts and login
-- Personal stats dashboard (WPM history, accuracy, personal bests, progress graph)
-- Amazon affiliate links on quote sources
-- Minimal ads
+- Flawless mode
+- Passage chaining for unlimited and 5min modes
+- Randomized starting points for long passages
+- Accurate WPM and accuracy tracking
+- Amazon affiliate links on quote sources (tag: ddevstore-20)
 - Mobile responsive
 
-### Phase 2 (Retention)
+### Phase 2 (Current)
 
+- User accounts and login
+- Personal stats dashboard (WPM history, accuracy, personal bests, progress graph)
+- Shareable results card (WPM, accuracy, passage, book source, [typoko.com](http://typoko.com))
+- Today's Passage daily challenge (same passage for all users, resets midnight)
+- Daily leaderboard for Today's Passage (anonymous, resets daily)
 - Real-time on-screen keyboard showing keypresses as you type
 - Keyboard heatmap showing error keys after test
+- Author and passage dedicated pages (/type/edgar-allan-poe etc.) for SEO
+- Flawless mode dedicated page (/flawless) for SEO
+- Blog content for SEO ("typing test with real books", "literary typing test", author/passage focused posts)
 - Global leaderboards per mode
 - More quote categories (movies, literature, speeches)
 - User settings (font size, theme, sound effects)
 - Streak tracking
 - Social sharing of results
-- Hard/Technical mode: symbol and number-heavy content (equations, code snippets, financial data) as a separate optional mode
 
 ### Phase 3 (Competition)
 
@@ -99,6 +107,7 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 - Last Man Standing mode
 - Friend challenge links
 - Public profiles
+- Compare pages for SEO (Typoko vs Monkeytype etc.)
 
 ### Phase 4 (Learning)
 
@@ -110,6 +119,7 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 ### Phase 5 (Monetization)
 
 - Premium accounts (ad-free, extra stats, custom themes)
+- Hard/Technical mode with symbols, equations, and code snippets
 - Mobile app if traffic justifies it
 
 ## Quotes Database Notes
@@ -121,4 +131,15 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 ## Pending Fixes
 
 - Passage chaining: preload the next passage when within the last 20-30 words of the current passage so the transition is seamless with no pause or required space after the last character. Transition should be invisible to the typist.
+- Tagline: Change "type. challenge. learn." to "read. type. learn."
+- Footer: Change "less test. more challenge." to "real literature. real challenge."
+- Shareable results card: After completing a test, generate a stylized shareable image showing WPM, accuracy, passage title, book source, and [typoko.com](http://typoko.com). Users can download or share directly to social media.
+- Today's Passage: Feature one passage per day as the daily challenge. Same passage for all users that day. Resets at midnight. Shows on the home screen as a highlighted option.
+- Author and passage dedicated pages: Create individual pages for each author and passage (e.g., /type/edgar-allan-poe, /type/the-raven) for SEO. Each page loads that specific author or passage automatically.
+- Daily leaderboard: Simple top scores leaderboard for today's passage only. No accounts needed — just initials or anonymous. Resets daily with the passage.
+- Flawless mode dedicated page: Create a /flawless page that explains the mode and loads it automatically. SEO target: "hardest typing test."
+
+## Focus Mode (Future Feature)
+
+Dedicated typing training mode for users with dyslexia-like struggles (letter omissions, transpositions, wrong-key presses, reading-processing fog). Not about speed or keyboard memorization — targets sequencing, execution, inhibition, and accuracy. Errors must be corrected before continuing. Post-session error pattern report. Character-by-character option. Dedicated page at /focus-mode for SEO. Full context document saved separately — paste into chat when ready to build.
 

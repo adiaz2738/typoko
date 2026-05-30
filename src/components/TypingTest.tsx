@@ -15,6 +15,7 @@ interface TypingTestProps {
   textMode: TextMode;
   timerMode: TimerMode;
   flawlessMode: boolean;
+  initialQuote?: Quote;
 }
 
 type CharState = "pending" | "correct" | "incorrect" | "current";
@@ -79,7 +80,7 @@ function getTextWithRandomStart(text: string): string {
   return text.slice(positions[Math.floor(Math.random() * positions.length)]);
 }
 
-export default function TypingTest({ textMode, timerMode, flawlessMode }: TypingTestProps) {
+export default function TypingTest({ textMode, timerMode, flawlessMode, initialQuote }: TypingTestProps) {
   const [chars, setChars] = useState<CharData[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [started, setStarted] = useState(false);
@@ -93,6 +94,8 @@ export default function TypingTest({ textMode, timerMode, flawlessMode }: Typing
   const [scrollY, setScrollY] = useState(0);
   const [flawlessFailed, setFlawlessFailed] = useState(false);
   const [flawlessCharsCompleted, setFlawlessCharsCompleted] = useState(0);
+
+  const initialQuoteRef = useRef<Quote | undefined>(initialQuote);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -121,8 +124,13 @@ export default function TypingTest({ textMode, timerMode, flawlessMode }: Typing
       text = currentTextRef.current;
       quote = currentQuoteRef.current;
     } else if (textMode === "quotes") {
-      quote = getRandomQuote();
-      text = getTextWithRandomStart(quote.text);
+      if (initialQuoteRef.current) {
+        quote = initialQuoteRef.current;
+        text = quote.text;
+      } else {
+        quote = getRandomQuote();
+        text = getTextWithRandomStart(quote.text);
+      }
     } else {
       const wordCount = timerMode !== null
         ? Math.max(60, Math.ceil((timerMode / 60) * 120))

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 interface HeaderProps {
   onLogoClick?: () => void;
 }
@@ -15,7 +17,13 @@ export default function Header({ onLogoClick }: HeaderProps) {
           typoko
         </button>
       </div>
-      <nav className="flex items-center gap-6 text-sm text-subtle">
+      <nav className="flex items-center gap-8 text-sm text-subtle">
+        <Link
+          href="/library"
+          className="font-mono text-xs text-muted hover:text-subtle transition-colors"
+        >
+          browse
+        </Link>
         <span className="text-subtle/60 font-mono text-xs">
           read. type. learn.
         </span>
