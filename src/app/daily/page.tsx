@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { quotes } from "@/data/quotes";
 import PassageTypingTest from "@/components/PassageTypingTest";
+import DailyLeaderboard from "@/components/DailyLeaderboard";
 import SiteHeader from "@/components/SiteHeader";
 
 export const revalidate = 3600;
@@ -58,7 +59,10 @@ export default function DailyPage() {
           <PassageTypingTest
             quote={quote}
             resultsNote="come back tomorrow for a new passage"
+            dailyMode
           />
+
+          <DailyLeaderboard />
 
           <Link
             href="/"

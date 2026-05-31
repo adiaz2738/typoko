@@ -6,9 +6,10 @@ import TypingTest from "./TypingTest";
 interface Props {
   quote: Quote;
   resultsNote?: string;
+  dailyMode?: boolean;
 }
 
-export default function PassageTypingTest({ quote, resultsNote }: Props) {
+export default function PassageTypingTest({ quote, resultsNote, dailyMode }: Props) {
   return (
     <TypingTest
       key={quote.id}
@@ -17,6 +18,7 @@ export default function PassageTypingTest({ quote, resultsNote }: Props) {
       flawlessMode={false}
       initialQuote={quote}
       resultsNote={resultsNote}
+      dailyMode={dailyMode}
     />
   );
 }
