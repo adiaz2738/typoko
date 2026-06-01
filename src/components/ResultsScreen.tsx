@@ -82,7 +82,7 @@ const ShareCard = ({ wpm, accuracy, quote }: ShareCardProps) => (
       <span style={{ color: "#e2b714", fontSize: 64, fontWeight: 700, lineHeight: 1 }}>
         {wpm}
       </span>
-      <span style={{ color: "#7a7a96", fontSize: 13 }}>{getWpmLabel(wpm)}</span>
+      <span style={{ color: "#7a7a96", fontSize: 13, marginTop: 10 }}>{getWpmLabel(wpm)}</span>
     </div>
 
     {/* Accuracy */}
@@ -196,8 +196,9 @@ export default function ResultsScreen({
   note,
   dailyMode = false,
 }: ResultsProps) {
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [saving, setSaving] = useState(false);
+  // Ref to the off-screen card — captured by html2canvas, never shown in-page
+  const hiddenCardRef = useRef<HTMLDivElement>(null);
+  const [sharing, setSharing] = useState(false);
   const [showNicknameModal, setShowNicknameModal] = useState(false);
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
 
@@ -215,23 +216,48 @@ export default function ResultsScreen({
     return () => window.removeEventListener("keydown", handleKey);
   }, [onNext, onRetry]);
 
-  async function handleSave() {
-    if (!cardRef.current || saving) return;
-    setSaving(true);
+  async function handleShare() {
+    if (!hiddenCardRef.current || sharing) return;
+    setSharing(true);
     try {
       const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(cardRef.current, {
+      const canvas = await html2canvas(hiddenCardRef.current, {
         backgroundColor: "#0f0f13",
         scale: 2,
         useCORS: true,
         logging: false,
       });
+
+      // On touch devices, prefer the Web Share API so users can post to social media
+      // or save directly to camera roll. Fall back to PNG download on desktop.
+      const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+      if (isTouchDevice && typeof navigator.share === "function") {
+        const blob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/png")
+        );
+        if (blob) {
+          const file = new File([blob], "typoko-results.png", { type: "image/png" });
+          const canShareFile =
+            typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
+          if (canShareFile) {
+            await navigator.share({ files: [file], title: "My Typoko Results" });
+            return;
+          }
+        }
+      }
+
+      // Desktop or fallback: trigger PNG download
       const link = document.createElement("a");
       link.download = "typoko-results.png";
       link.href = canvas.toDataURL("image/png");
       link.click();
+    } catch (err: unknown) {
+      // AbortError means the user dismissed the share sheet — not a real error
+      if (err instanceof Error && err.name !== "AbortError") {
+        console.error("Share failed:", err);
+      }
     } finally {
-      setSaving(false);
+      setSharing(false);
     }
   }
 
@@ -269,13 +295,13 @@ export default function ResultsScreen({
     )
   );
 
-  const saveButton = (
+  const shareButton = (
     <button
-      onClick={handleSave}
-      disabled={saving}
+      onClick={handleShare}
+      disabled={sharing}
       className="px-6 py-2.5 bg-surface border border-border rounded-lg text-subtle font-mono text-sm hover:border-accent hover:text-accent transition-colors disabled:opacity-50"
     >
-      {saving ? "saving…" : "save image"}
+      {sharing ? "sharing…" : "share results"}
     </button>
   );
 
@@ -296,7 +322,7 @@ export default function ResultsScreen({
         </button>
       </div>
       {submitScoreButton}
-      {saveButton}
+      {shareButton}
     </div>
   );
 
@@ -313,10 +339,88 @@ export default function ResultsScreen({
     </p>
   );
 
+  // Off-screen card rendered into the DOM so html2canvas can capture it on demand.
+  // Fixed positioning + large negative left keeps it invisible without display:none
+  // (which would prevent html2canvas from reading layout).
+  const hiddenCard = (
+    <div
+      ref={hiddenCardRef}
+      style={{ position: "fixed", left: -9999, top: 0, pointerEvents: "none", zIndex: -1 }}
+      aria-hidden
+    >
+      <ShareCard wpm={wpm} accuracy={accuracy} quote={quote} />
+    </div>
+  );
+
   if (flawlessFailed) {
     const estimatedWords = Math.floor(charsBeforeFail / 5);
     return (
       <>
+        {hiddenCard}
+        {showNicknameModal && (
+          <NicknameModal
+            onSubmit={saveScoreWithNickname}
+            onCancel={() => setShowNicknameModal(false)}
+          />
+        )}
+        <div className="fade-in flex flex-col items-center gap-8 w-full max-w-2xl mx-auto px-4">
+          {/* Flawless fail header */}
+          <div className="text-center">
+            <p className="text-incorrect text-xs font-mono uppercase tracking-widest mb-3">
+              flawless — failed
+            </p>
+            <p className="text-text text-5xl font-bold font-mono">{charsBeforeFail}</p>
+            <p className="text-subtle text-sm font-mono mt-2">
+              characters &nbsp;·&nbsp; ~{estimatedWords} words before first mistake
+            </p>
+          </div>
+
+          {/* Secondary stats */}
+          <div className="grid grid-cols-2 gap-6 w-full">
+            <StatCard
+              label="wpm"
+              value={wpm.toString()}
+              sub={getWpmLabel(wpm)}
+              highlight
+            />
+            <StatCard
+              label="time"
+              value={formatTime(elapsedSeconds)}
+              sub={`${correctChars} correct`}
+            />
+          </div>
+
+          {/* Quote attribution */}
+          {quote && (
+            <div className="w-full bg-surface border border-border rounded-xl p-5 text-center">
+              <p className="text-text/70 text-sm font-mono italic mb-2">
+                &ldquo;{quote.text.slice(0, 120)}{quote.text.length > 120 ? "…" : ""}&rdquo;
+              </p>
+              <p className="text-subtle text-xs">— {quote.author}</p>
+              <a
+                href={quote.affiliateLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block mt-2 text-accent text-xs hover:underline"
+              >
+                {quote.source} →
+              </a>
+            </div>
+          )}
+
+          {actions}
+          {keyHints}
+          {note && (
+            <p className="font-mono text-xs text-text">{note}</p>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {hiddenCard}
       {showNicknameModal && (
         <NicknameModal
           onSubmit={saveScoreWithNickname}
@@ -324,19 +428,8 @@ export default function ResultsScreen({
         />
       )}
       <div className="fade-in flex flex-col items-center gap-8 w-full max-w-2xl mx-auto px-4">
-        {/* Flawless fail header */}
-        <div className="text-center">
-          <p className="text-incorrect text-xs font-mono uppercase tracking-widest mb-3">
-            flawless — failed
-          </p>
-          <p className="text-text text-5xl font-bold font-mono">{charsBeforeFail}</p>
-          <p className="text-subtle text-sm font-mono mt-2">
-            characters &nbsp;·&nbsp; ~{estimatedWords} words before first mistake
-          </p>
-        </div>
-
-        {/* Secondary stats */}
-        <div className="grid grid-cols-2 gap-6 w-full">
+        {/* Main stats */}
+        <div className="grid grid-cols-3 gap-6 w-full">
           <StatCard
             label="wpm"
             value={wpm.toString()}
@@ -344,15 +437,16 @@ export default function ResultsScreen({
             highlight
           />
           <StatCard
+            label="accuracy"
+            value={`${accuracy}%`}
+            sub={`${correctChars} correct`}
+            className={getAccuracyColor(accuracy)}
+          />
+          <StatCard
             label="time"
             value={formatTime(elapsedSeconds)}
-            sub={`${correctChars} correct`}
+            sub={`${incorrectChars} errors`}
           />
-        </div>
-
-        {/* Share card */}
-        <div ref={cardRef}>
-          <ShareCard wpm={wpm} accuracy={accuracy} quote={quote} />
         </div>
 
         {/* Quote attribution */}
@@ -379,69 +473,6 @@ export default function ResultsScreen({
           <p className="font-mono text-xs text-text">{note}</p>
         )}
       </div>
-      </>
-    );
-  }
-
-  return (
-    <>
-    {showNicknameModal && (
-      <NicknameModal
-        onSubmit={saveScoreWithNickname}
-        onCancel={() => setShowNicknameModal(false)}
-      />
-    )}
-    <div className="fade-in flex flex-col items-center gap-8 w-full max-w-2xl mx-auto px-4">
-      {/* Main stats */}
-      <div className="grid grid-cols-3 gap-6 w-full">
-        <StatCard
-          label="wpm"
-          value={wpm.toString()}
-          sub={getWpmLabel(wpm)}
-          highlight
-        />
-        <StatCard
-          label="accuracy"
-          value={`${accuracy}%`}
-          sub={`${correctChars} correct`}
-          className={getAccuracyColor(accuracy)}
-        />
-        <StatCard
-          label="time"
-          value={formatTime(elapsedSeconds)}
-          sub={`${incorrectChars} errors`}
-        />
-      </div>
-
-      {/* Share card */}
-      <div ref={cardRef}>
-        <ShareCard wpm={wpm} accuracy={accuracy} quote={quote} />
-      </div>
-
-      {/* Quote attribution */}
-      {quote && (
-        <div className="w-full bg-surface border border-border rounded-xl p-5 text-center">
-          <p className="text-text/70 text-sm font-mono italic mb-2">
-            &ldquo;{quote.text.slice(0, 120)}{quote.text.length > 120 ? "…" : ""}&rdquo;
-          </p>
-          <p className="text-subtle text-xs">— {quote.author}</p>
-          <a
-            href={quote.affiliateLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block mt-2 text-accent text-xs hover:underline"
-          >
-            {quote.source} →
-          </a>
-        </div>
-      )}
-
-      {actions}
-      {keyHints}
-      {note && (
-        <p className="font-mono text-xs text-text">{note}</p>
-      )}
-    </div>
     </>
   );
 }

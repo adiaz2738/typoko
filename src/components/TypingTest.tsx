@@ -27,15 +27,14 @@ interface CharData {
   state: CharState;
 }
 
-// Approximate line height for text-xl + leading-relaxed (20px * 1.625 = 32.5px)
 const LINE_HEIGHT_PX = 33;
 const VISIBLE_LINES = 3;
-const VISIBLE_HEIGHT_PX = LINE_HEIGHT_PX * VISIBLE_LINES; // 99px
-const CONTAINER_HEIGHT_PX = VISIBLE_HEIGHT_PX + 48; // + p-6 top + bottom padding
-
-// Preload the next passage when this many chars remain in the current one (~25 words).
-// This ensures the content is already rendered before the typist reaches the boundary.
-const PRELOAD_CHARS_THRESHOLD = 150;
+const VISIBLE_HEIGHT_PX = LINE_HEIGHT_PX * VISIBLE_LINES;
+const CONTAINER_HEIGHT_PX = VISIBLE_HEIGHT_PX + 48;
+const PRELOAD_CHARS_THRESHOLD = 1000;
+// On touch devices the stale closure can lag the real index; use a smaller target
+// so even with 100–200 chars of closure lag the preload fires within the last ~50 words.
+const PRELOAD_CHARS_THRESHOLD_TOUCH = 250;
 
 function buildCharData(text: string): CharData[] {
   return text.split("").map((char, i) => ({
@@ -64,12 +63,9 @@ function formatTimer(seconds: number, countdown: boolean, limit: number | null):
   return display.toString();
 }
 
-// For quotes > 500 words: 70% chance to start at a random sentence boundary.
-// Quotes <= 500 words always start from the beginning.
 function getTextWithRandomStart(text: string): string {
   const wordCount = text.trim().split(/\s+/).length;
   if (wordCount <= 500 || Math.random() > 0.7) return text;
-
   const positions: number[] = [];
   const re = /[.!?]\s+/g;
   let m: RegExpExecArray | null;
@@ -77,7 +73,6 @@ function getTextWithRandomStart(text: string): string {
     const pos = m.index + m[0].length;
     if (pos < text.length - 100) positions.push(pos);
   }
-
   if (positions.length === 0) return text;
   return text.slice(positions[Math.floor(Math.random() * positions.length)]);
 }
@@ -98,8 +93,13 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
   const [flawlessCharsCompleted, setFlawlessCharsCompleted] = useState(0);
 
   const initialQuoteRef = useRef<Quote | undefined>(initialQuote);
-
   const inputRef = useRef<HTMLInputElement>(null);
+  const typingContainerRef = useRef<HTMLDivElement>(null);
+  // Updated synchronously on every keystroke so the preload threshold check
+  // never reads a stale value from the closure (critical on slow mobile renders).
+  const currentIndexRef = useRef(0);
+  // Detected once at mount; drives threshold selection in processTypedChar.
+  const isTouchRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef(0);
   const correctRef = useRef(0);
@@ -111,8 +111,6 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
   const currentTextRef = useRef<string>("");
   const startTimeRef = useRef<number>(0);
   const finishedElapsedRef = useRef<number>(0);
-  // Tracks total planned content length (grows as passages are preloaded).
-  // Used to trigger preloading at the right time regardless of stale closure state.
   const plannedEndRef = useRef(0);
 
   const countdown = timerMode !== null;
@@ -141,6 +139,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
     }
 
     plannedEndRef.current = text.length;
+    currentIndexRef.current = 0;
     currentQuoteRef.current = quote;
     currentTextRef.current = text;
     setCurrentQuote(quote);
@@ -163,6 +162,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
     totalRef.current = 0;
     finishedElapsedRef.current = 0;
 
+    if (inputRef.current) inputRef.current.value = "";
     if (timerRef.current) clearInterval(timerRef.current);
   }, [textMode, timerMode]);
 
@@ -170,9 +170,27 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
     loadText();
   }, [loadText]);
 
+  // Detect touch capability once at mount
+  useEffect(() => {
+    isTouchRef.current = navigator.maxTouchPoints > 0;
+  }, []);
+
+  // Focus whenever chars change (covers initial load and retry/next resets)
   useEffect(() => {
     inputRef.current?.focus();
   }, [chars]);
+
+  // On touch devices, scroll the typing area above the virtual keyboard when typing starts
+  useEffect(() => {
+    if (!started) return;
+    const isTouchDevice = typeof window !== "undefined" &&
+      ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+    if (!isTouchDevice) return;
+    const id = setTimeout(() => {
+      typingContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 300);
+    return () => clearTimeout(id);
+  }, [started]);
 
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -189,6 +207,100 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
       }
     }, 1000);
   }, [isTimedMode, timerMode]);
+
+  // Core char processing, shared between handleKeyDown (desktop) and handleInput (mobile).
+  // Uses functional updater so React schedules the array copy lazily instead of blocking
+  // the event handler synchronously — this is the original approach that keeps input snappy.
+  const processTypedChar = useCallback((key: string) => {
+    if (finished) return;
+
+    const expected = chars[currentIndex]?.char;
+    if (expected === undefined) return;
+    const isCorrect = key === expected;
+
+    totalRef.current += 1;
+    if (isCorrect) correctRef.current += 1;
+    else incorrectRef.current += 1;
+
+    // Flawless mode: end immediately on first mistake
+    if (flawlessMode && !isCorrect) {
+      setChars((prev) => {
+        const next = [...prev];
+        next[currentIndex] = { char: expected, state: "incorrect" };
+        return next;
+      });
+      setTotalTyped(totalRef.current);
+      setCorrectChars(correctRef.current);
+      setLiveAccuracy(calcAccuracy(correctRef.current, correctRef.current + incorrectRef.current));
+      if (timerRef.current) clearInterval(timerRef.current);
+      finishedElapsedRef.current = startTimeRef.current > 0
+        ? (performance.now() - startTimeRef.current) / 1000
+        : elapsedRef.current;
+      setFlawlessFailed(true);
+      setFlawlessCharsCompleted(currentIndex);
+      setFinished(true);
+      return;
+    }
+
+    const nextIdx = currentIndex + 1;
+    const isChaining = timerMode === null || timerMode === 300;
+
+    // Preload the next passage when within threshold chars of the planned end.
+    // Use currentIndexRef (updated synchronously) so the check is never stale —
+    // on mobile, renders lag behind keystrokes and the closure currentIndex can be
+    // far behind the real position, causing preload to fire too late.
+    const preloadThreshold = isTouchRef.current
+      ? PRELOAD_CHARS_THRESHOLD_TOUCH
+      : PRELOAD_CHARS_THRESHOLD;
+    let preloadChars: CharData[] = [];
+    if (isChaining && plannedEndRef.current - currentIndexRef.current <= preloadThreshold) {
+      let chainText = " ";
+      let chainQuote: Quote | null = null;
+      if (textMode === "quotes") {
+        chainQuote = getRandomQuote();
+        chainText += getTextWithRandomStart(chainQuote.text);
+      } else {
+        const wc = timerMode !== null ? Math.max(60, Math.ceil((timerMode / 60) * 120)) : 60;
+        chainText += generateWordSet(wc);
+      }
+      preloadChars = chainText.split("").map(char => ({ char, state: "pending" as CharState }));
+      plannedEndRef.current += chainText.length;
+      if (chainQuote) currentQuoteRef.current = chainQuote;
+    }
+
+    setChars((prev) => {
+      const next = [...prev];
+      next[currentIndex] = { char: expected, state: isCorrect ? "correct" : "incorrect" };
+
+      if (preloadChars.length > 0) {
+        const combined = [...next, ...preloadChars];
+        combined[nextIdx] = { ...combined[nextIdx], state: "current" };
+        return combined;
+      }
+
+      if (nextIdx < prev.length) {
+        next[nextIdx] = { ...next[nextIdx], state: "current" };
+      }
+      return next;
+    });
+
+    setTotalTyped(totalRef.current);
+    setCorrectChars(correctRef.current);
+    setLiveAccuracy(calcAccuracy(correctRef.current, correctRef.current + incorrectRef.current));
+
+    const isFinished = nextIdx >= chars.length; // stale, but only used for non-chaining finish
+    currentIndexRef.current = nextIdx;
+    if (!isChaining && isFinished && preloadChars.length === 0) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      finishedElapsedRef.current = startTimeRef.current > 0
+        ? (performance.now() - startTimeRef.current) / 1000
+        : elapsedRef.current;
+      setCurrentIndex(nextIdx);
+      setFinished(true);
+    } else {
+      setCurrentIndex(nextIdx);
+    }
+  }, [currentIndex, finished, chars, flawlessMode, textMode, timerMode]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -210,8 +322,6 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
         const prevIdx = currentIndex - 1;
         const prevChar = chars[prevIdx];
 
-        // Mutate refs outside the updater — React Strict Mode calls updaters twice,
-        // which would double-decrement if mutations were inside.
         if (prevChar.state === "correct" || prevChar.state === "incorrect") {
           totalRef.current = Math.max(0, totalRef.current - 1);
         }
@@ -226,6 +336,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
           return next;
         });
 
+        currentIndexRef.current = prevIdx;
         setCurrentIndex(prevIdx);
         setTotalTyped(totalRef.current);
         setCorrectChars(correctRef.current);
@@ -233,116 +344,46 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
         return;
       }
 
-      if (e.key.length !== 1) return;
-
-      const expected = chars[currentIndex]?.char;
-      if (expected === undefined) return;
-      const isCorrect = e.key === expected;
-
-      totalRef.current += 1;
-      if (isCorrect) correctRef.current += 1;
-      else incorrectRef.current += 1;
-
-      // Flawless mode: end immediately on first mistake
-      if (flawlessMode && !isCorrect) {
-        setChars((prev) => {
-          const next = [...prev];
-          next[currentIndex] = { char: expected, state: "incorrect" };
-          return next;
-        });
-        setTotalTyped(totalRef.current);
-        setCorrectChars(correctRef.current);
-        setLiveAccuracy(calcAccuracy(correctRef.current, correctRef.current + incorrectRef.current));
-        if (timerRef.current) clearInterval(timerRef.current);
-        finishedElapsedRef.current = startTimeRef.current > 0
-          ? (performance.now() - startTimeRef.current) / 1000
-          : elapsedRef.current;
-        setFlawlessFailed(true);
-        setFlawlessCharsCompleted(currentIndex);
-        setFinished(true);
-        return;
-      }
-
-      const nextIdx = currentIndex + 1;
-      const isChaining = timerMode === null || timerMode === 300;
-
-      // Preload the next passage when within PRELOAD_CHARS_THRESHOLD chars of plannedEndRef.
-      // plannedEndRef tracks total content length (including all prior preloads) synchronously,
-      // so it stays accurate even though chars.length is stale inside this closure.
-      // After appending, plannedEndRef jumps forward by the new passage length, suppressing
-      // further preloads until the typist approaches the new end.
-      let preloadChars: CharData[] = [];
-
-      if (isChaining && plannedEndRef.current - currentIndex <= PRELOAD_CHARS_THRESHOLD) {
-        let chainText = " "; // single space separates passages naturally
-        let chainQuote: Quote | null = null;
-
-        if (textMode === "quotes") {
-          chainQuote = getRandomQuote();
-          chainText += getTextWithRandomStart(chainQuote.text);
-        } else {
-          const wc = timerMode !== null ? Math.max(60, Math.ceil((timerMode / 60) * 120)) : 60;
-          chainText += generateWordSet(wc);
-        }
-
-        preloadChars = chainText.split("").map(char => ({
-          char,
-          state: "pending" as CharState,
-        }));
-        plannedEndRef.current += chainText.length;
-        if (chainQuote) currentQuoteRef.current = chainQuote;
-      }
-
-      setChars((prev) => {
-        const next = [...prev];
-        next[currentIndex] = { char: expected, state: isCorrect ? "correct" : "incorrect" };
-
-        if (preloadChars.length > 0) {
-          // Append new content and mark the next position as current.
-          // nextIdx may equal prev.length (stale-isFinished edge case) — combined handles it.
-          const combined = [...next, ...preloadChars];
-          combined[nextIdx] = { ...combined[nextIdx], state: "current" };
-          return combined;
-        }
-
-        // Use prev.length (actual current state) not stale chars.length to detect end correctly.
-        // This handles the case where a prior preload already extended the array.
-        if (nextIdx < prev.length) {
-          next[nextIdx] = { ...next[nextIdx], state: "current" };
-        }
-        return next;
-      });
-
-      setTotalTyped(totalRef.current);
-      setCorrectChars(correctRef.current);
-      setLiveAccuracy(calcAccuracy(correctRef.current, correctRef.current + incorrectRef.current));
-
-      // In chaining modes the timer drives the finish; cursor just keeps advancing.
-      // In non-chaining modes, end when the passage is exhausted.
-      const isFinished = nextIdx >= chars.length; // stale but only used for non-chaining finish
-      if (!isChaining && isFinished && preloadChars.length === 0) {
-        if (timerRef.current) clearInterval(timerRef.current);
-        finishedElapsedRef.current = startTimeRef.current > 0
-          ? (performance.now() - startTimeRef.current) / 1000
-          : elapsedRef.current;
-        setCurrentIndex(nextIdx);
-        setFinished(true);
-      } else {
-        setCurrentIndex(nextIdx);
+      if (e.key.length === 1) {
+        // Prevent the char from being inserted into the input DOM value.
+        // When the input event then fires it sees value="" and exits early,
+        // so the same keystroke isn't processed twice on iOS/desktop.
+        e.preventDefault();
+        processTypedChar(e.key);
       }
     },
-    [currentIndex, finished, started, startTimer, loadText, chars, flawlessMode, textMode, timerMode]
+    [currentIndex, finished, started, startTimer, loadText, chars, processTypedChar]
   );
+
+  // Mobile fallback: Android virtual keyboards fire keydown with key="Unidentified"
+  // and deliver the actual character via the input event instead.
+  // On desktop/iOS, e.preventDefault() in handleKeyDown leaves input.value empty,
+  // so value will be "" here and we exit immediately — no double-processing.
+  const handleInput = useCallback((e: React.FormEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const value = input.value;
+    input.value = "";
+    if (!value) return;
+
+    if (!started) {
+      setStarted(true);
+      startTimer();
+    }
+
+    for (const char of value) {
+      if (char !== "\n" && char !== "\r") {
+        processTypedChar(char);
+      }
+    }
+  }, [started, startTimer, processTypedChar]);
 
   // Page through text in VISIBLE_HEIGHT_PX chunks as the current char advances
   useEffect(() => {
     const charEl = charRefs.current[currentIndex];
     if (!charEl) return;
-
     const charTop = charEl.offsetTop;
     const page = Math.floor(charTop / VISIBLE_HEIGHT_PX);
     const newScrollY = page * VISIBLE_HEIGHT_PX;
-
     if (newScrollY !== scrollYRef.current) {
       scrollYRef.current = newScrollY;
       setScrollY(newScrollY);
@@ -374,7 +415,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
   }
 
   return (
-    <div className="w-full max-w-3xl mx-auto px-4 flex flex-col gap-6">
+    <div ref={typingContainerRef} className="w-full max-w-3xl mx-auto px-4 pb-6 flex flex-col gap-6">
       {/* Stats bar */}
       <div className="flex items-center justify-between font-mono text-sm">
         <div className="flex items-center gap-6">
@@ -400,6 +441,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
         className="relative bg-surface border border-border rounded-2xl px-6 pt-6 pb-6 cursor-text overflow-hidden"
         style={{ height: `${CONTAINER_HEIGHT_PX}px` }}
         onClick={() => inputRef.current?.focus()}
+        onTouchStart={() => inputRef.current?.focus()}
       >
         <div
           className="relative font-mono text-xl leading-relaxed tracking-wide select-none"
@@ -434,18 +476,23 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
           })}
         </div>
 
-        {/* Hidden input captures all keystrokes */}
+        {/* Hidden input — captures keystrokes on desktop and virtual keyboard on touch devices.
+            onTouchStart on the input itself guarantees focus comes from the element's own
+            touch event, which Android requires to reliably open the virtual keyboard. */}
         <input
           ref={inputRef}
+          type="text"
+          inputMode="text"
+          enterKeyHint="send"
           onKeyDown={handleKeyDown}
+          onInput={handleInput}
+          onTouchStart={() => inputRef.current?.focus()}
           className="absolute inset-0 opacity-0 w-full h-full cursor-text"
           aria-label="Typing input"
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          value=""
-          onChange={() => {}}
         />
       </div>
 
