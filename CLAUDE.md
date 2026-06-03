@@ -15,23 +15,46 @@ No test suite is configured.
 
 ## Architecture
 
-Single-page Next.js 14 (App Router) typing speed test. The entire app lives on one route (`src/app/page.tsx`).
+Next.js 14 (App Router) typing speed test with multiple routes.
+
+**Routes:**
+- `src/app/page.tsx` — home page (core typing test)
+- `src/app/daily/page.tsx` — Today's Passage daily challenge
+- `src/app/library/page.tsx` — browse all passages with search
+- `src/app/focus/page.tsx` — Focus Mode typing training
+- `src/app/type/[author]/page.tsx` — author SEO pages
+- `src/app/type/[author]/[passage]/page.tsx` — individual passage SEO pages
 
 **State flow:** `page.tsx` owns `textMode` and `timerMode` and passes them down. A `key={textMode-timerMode}` prop on `<TypingTest>` forces a full remount whenever either mode changes — this is intentional and avoids reset logic inside the component.
 
-**Core component — `TypingTest`:** Renders each character as a `<CharData>` object with state `pending | correct | incorrect | current`. Keystrokes are captured via a hidden `<input>` (opacity-0, overlaid on the display area) with `onKeyDown`. The visible text is read-only spans; the input never shows its value. Tab always resets. Timer starts on first keypress.
+**Core component — `TypingTest`:** Renders each character as a `<CharData>` object with state `pending | correct | incorrect | current`. Keystrokes are captured via a hidden `<input>` (opacity-0, overlaid on the display area) with `onKeyDown`. The visible text is read-only spans; the input never shows its value. Tab always resets. Timer starts on first keypress. Mobile Android uses `onInput` fallback since virtual keyboards fire `key="Unidentified"`.
+
+**Passage chaining:** For untimed and 5min modes, the next passage is preloaded when within threshold chars of the end and appended to the char array. Desktop threshold is 1000 chars; touch devices use 250 chars due to stale closure lag on slow mobile renders. The transition is invisible to the typist.
+
+**Key components:**
+- `SiteHeader` — navigation header with browse/daily/focus links and auth user button
+- `PassageTypingTest` — thin wrapper used by daily/author/passage pages; locks to a specific quote and 60s timer
+- `ResultsScreen` — shown when `finished === true`; includes stats, share card, submit score button in daily mode
+- `DailyLeaderboard` — fetches top 10 scores from Supabase `daily_scores` table for today; refreshes on `DAILY_SCORE_SUBMITTED_EVENT`
+- `ModeSelector` — mode toggle buttons for text/timer modes on home page
 
 **Data sources:**
-
-- `src/data/quotes.ts` — 50 `Quote` objects (`{ id, text, author, source, affiliateLink }`). `affiliateLink` is an Amazon affiliate URL with tag `typoko-20` — preserve these when adding quotes.
+- `src/data/quotes.ts` — `Quote` objects (`{ id, text, author, source, affiliateLink, authorSlug, passageSlug }`). `id` is mandatory (sequential integer). `affiliateLink` uses Amazon tag `ddevstore-20` — preserve when adding quotes. Short quotes (under 100 words) should be avoided.
 - `src/data/words.ts` — `commonWords[]` pool; `generateWordSet(n)` picks `n` random words and joins them with spaces.
 
 **Modes:**
-
 - Text: `"quotes"` (full quote string) or `"words"` (40 random words)
 - Timer: `30 | 60 | 90 | 300 | null` — `null` means untimed (stopwatch). Countdown reaches zero → auto-finish.
 
-**ResultsScreen** is shown in-place of `TypingTest` when `finished === true`. Both "retry" and "next →" call the same `loadText()` callback.
+**Auth and database:**
+- Supabase client at `src/lib/supabase.ts`
+- Auth context at `src/context/AuthContext.tsx` — provides `{ user, loading }` via `useAuth()`
+- Supabase auth supports email/password and Google OAuth
+- Custom SMTP configured with support@typoko.com
+- `daily_scores` table columns: `user_id`, `date` (ISO format `YYYY-MM-DD`), `wpm`, `accuracy`, `quote_id`
+- Date keys from `getTodayDateKey()` in `src/utils/dailyLeaderboard.ts` return ISO format `YYYY-MM-DD`
+
+**ResultsScreen** is shown in-place of `TypingTest` when `finished === true`. "Retry" reloads the same text; "Next →" loads new text. Enter = next, Tab = retry.
 
 ## Styling
 
@@ -41,7 +64,7 @@ Two global CSS utilities: `.cursor-blink` (blinking caret animation) and `.fade-
 
 ## Deployment
 
-`vercel.json` is present; the project is deployed to Vercel.
+`vercel.json` is present; deployed to Vercel. Vercel Analytics and Speed Insights are wired in.
 
 ## Project Vision
 
@@ -54,20 +77,9 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 - Font may change later, leave as is for now
 - Mobile responsive is required
 
-## Known Issues to Fix
-
-- Text display must be multi-line (3-5 visible lines), not single horizontal scrolling line
-- Text should smoothly transition to next set of lines, never interrupt typing flow
-- Typoko logo must be clickable and return to home screen / reset the test
-- Enter key on results screen = load next quote
-- Tab key on results screen = retry same quote
-- Retry and Next buttons must be different: Retry = same quote, Next = new quote
-- Tab during test = restart with new quote (keep this)
-- Quotes need to be much longer (aim for 150-300 words each, enough to fill 30-90 seconds)
-
 ## Revenue
 
-- Amazon affiliate links on quote sources (placeholder links exist, real ones added later)
+- Amazon affiliate links on quote sources (tag: ddevstore-20)
 - Minimal tasteful ads planned (not implemented yet)
 
 ## Roadmap
@@ -80,26 +92,44 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 - Passage chaining for unlimited and 5min modes
 - Randomized starting points for long passages
 - Accurate WPM and accuracy tracking
-- Amazon affiliate links on quote sources (tag: ddevstore-20)
+- Amazon affiliate links on quote sources
 - Mobile responsive
+- Multi-line text display with smooth paging
+- Tab to reset, Enter = next on results, Tab = retry on results
+- Retry vs Next distinction (same quote vs new quote)
 
-### Phase 2 (Current)
+### Phase 2 (In Progress)
 
-- User accounts and login
-- Personal stats dashboard (WPM history, accuracy, personal bests, progress graph)
-- Shareable results card (WPM, accuracy, passage, book source, [typoko.com](http://typoko.com))
-- Today's Passage daily challenge (same passage for all users, resets midnight)
-- Daily leaderboard for Today's Passage (anonymous, resets daily)
+**Complete:**
+- Supabase auth with email/password and Google OAuth
+- Custom SMTP with support@typoko.com
+- Auth modal and user button in header
+- Today's Passage daily challenge page (`/daily`)
+- Daily leaderboard (Supabase-backed, top 10, resets daily)
+- Shareable results card with download/share button (html2canvas)
+- Author and passage SEO pages (`/type/[author]`, `/type/[author]/[passage]`)
+- Library page with search bar (`/library`)
+- Header navigation (browse, daily, focus links)
+- Focus Mode page with error tracking (`/focus`)
+- Vercel Analytics and Speed Insights
+
+**Remaining:**
+- User profiles and usernames (display name instead of email prefix)
+- Personal stats dashboard (WPM history, accuracy trends, personal bests, progress graph)
+- Wiring daily leaderboard fully to real accounts (submit + score persistence working end-to-end)
+- Personal bests tracking per mode
+- Streak tracking (daily login / daily challenge streaks)
+- Global leaderboards per mode
+- User settings (font size, theme, sound effects)
 - Real-time on-screen keyboard showing keypresses as you type
 - Keyboard heatmap showing error keys after test
-- Author and passage dedicated pages (/type/edgar-allan-poe etc.) for SEO
-- Flawless mode dedicated page (/flawless) for SEO
-- Blog content for SEO ("typing test with real books", "literary typing test", author/passage focused posts)
-- Global leaderboards per mode
-- More quote categories (movies, literature, speeches)
-- User settings (font size, theme, sound effects)
-- Streak tracking
-- Social sharing of results
+- Focus Mode stat tracking and targeted practice drills based on error patterns
+- Blog content for SEO ("typing test with real books", "literary typing test", author-focused posts)
+- Author bios on author pages
+- User passage suggestion form
+- Poem and screenplay formatting support (future)
+- Flawless daily challenge variant (future)
+- Focus Mode character-by-character option (future)
 
 ### Phase 3 (Competition)
 
@@ -122,24 +152,14 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 - Hard/Technical mode with symbols, equations, and code snippets
 - Mobile app if traffic justifies it
 
-## Quotes Database Notes
-
-- quotes.ts requires an id field for every entry — this is mandatory or it breaks the build
-- Each quote needs: id (sequential number), text, author, source, affiliateLink
-- Short quotes (under 100 words) should be avoided — they end too quickly for timed tests
-
 ## Pending Fixes
 
-- Passage chaining: preload the next passage when within the last 20-30 words of the current passage so the transition is seamless with no pause or required space after the last character. Transition should be invisible to the typist.
-- Tagline: Change "type. challenge. learn." to "read. type. learn."
-- Footer: Change "less test. more challenge." to "real literature. real challenge."
-- Shareable results card: After completing a test, generate a stylized shareable image showing WPM, accuracy, passage title, book source, and [typoko.com](http://typoko.com). Users can download or share directly to social media.
-- Today's Passage: Feature one passage per day as the daily challenge. Same passage for all users that day. Resets at midnight. Shows on the home screen as a highlighted option.
-- Author and passage dedicated pages: Create individual pages for each author and passage (e.g., /type/edgar-allan-poe, /type/the-raven) for SEO. Each page loads that specific author or passage automatically.
-- Daily leaderboard: Simple top scores leaderboard for today's passage only. No accounts needed — just initials or anonymous. Resets daily with the passage.
-- Flawless mode dedicated page: Create a /flawless page that explains the mode and loads it automatically. SEO target: "hardest typing test."
+- **Daily leaderboard submit button:** Insert was silently failing — `display_name` column does not exist in `daily_scores` table. Removed from insert. Date format also fixed to ISO `YYYY-MM-DD`. Error logging and visible error state added. Needs end-to-end verification that scores are persisting and appearing in leaderboard.
+- **Mobile passage preload:** On touch devices, stale closure lag causes the preload threshold check to fire too late. Touch threshold lowered to 250 chars but still not reliable on all devices. May need a ref-based approach for the preload trigger.
+- **Mobile scroll above keyboard:** When typing starts on touch devices, the typing area should scroll above the virtual keyboard. Implemented with `scrollIntoView` but inconsistent across browsers.
+- **Samsung tablet keystroke registration:** Some Samsung tablet keyboards do not reliably trigger `onKeyDown` or `onInput`. Needs investigation into which event fires and whether `compositionend` is needed.
+- **Chrome iOS lag:** Input handling lags noticeably on Chrome for iOS. May be related to how WKWebView handles hidden inputs. Needs profiling.
 
-## Focus Mode (Future Feature)
+## Focus Mode
 
-Dedicated typing training mode for users with dyslexia-like struggles (letter omissions, transpositions, wrong-key presses, reading-processing fog). Not about speed or keyboard memorization — targets sequencing, execution, inhibition, and accuracy. Errors must be corrected before continuing. Post-session error pattern report. Character-by-character option. Dedicated page at /focus-mode for SEO. Full context document saved separately — paste into chat when ready to build.
-
+Dedicated typing training mode for users with dyslexia-like struggles (letter omissions, transpositions, wrong-key presses, reading-processing fog). Not about speed or keyboard memorization — targets sequencing, execution, inhibition, and accuracy. Page exists at `/focus`. Current implementation includes error tracking and per-session error pattern reporting. Future additions: post-session targeted drills, character-by-character mode, stat persistence to Supabase. Full context document saved separately — paste into chat when ready to extend.

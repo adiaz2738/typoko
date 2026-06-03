@@ -2,14 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Quote } from "@/data/quotes";
-import {
-  MAX_NICKNAME_LENGTH,
-  getBestScoreForNickname,
-  getNickname,
-  notifyDailyScoreSubmitted,
-  setNickname,
-  submitDailyScore,
-} from "@/utils/dailyLeaderboard";
+import { getTodayDateKey, notifyDailyScoreSubmitted } from "@/utils/dailyLeaderboard";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/context/AuthContext";
 
 interface ResultsProps {
   wpm: number;
@@ -121,67 +116,6 @@ const ShareCard = ({ wpm, accuracy, quote }: ShareCardProps) => (
   </div>
 );
 
-function NicknameModal({
-  onSubmit,
-  onCancel,
-}: {
-  onSubmit: (nickname: string) => void;
-  onCancel: () => void;
-}) {
-  const [value, setValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    onSubmit(trimmed);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 px-4">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm bg-surface border border-border rounded-xl p-6 flex flex-col gap-4"
-      >
-        <div className="flex flex-col gap-1">
-          <p className="font-mono text-sm text-text">choose a nickname</p>
-          <p className="font-mono text-xs text-subtle">max {MAX_NICKNAME_LENGTH} characters · saved for future visits</p>
-        </div>
-        <input
-          ref={inputRef}
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value.slice(0, MAX_NICKNAME_LENGTH))}
-          maxLength={MAX_NICKNAME_LENGTH}
-          placeholder="your nickname"
-          className="w-full bg-bg border border-border rounded-lg px-4 py-2.5 font-mono text-sm text-text placeholder:text-muted focus:outline-none focus:border-accent"
-        />
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={!value.trim()}
-            className="flex-1 px-4 py-2.5 bg-accent text-bg rounded-lg font-mono text-sm font-semibold hover:bg-accent/90 transition-colors disabled:opacity-50"
-          >
-            submit score
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2.5 bg-surface border border-border rounded-lg text-subtle font-mono text-sm hover:border-accent hover:text-accent transition-colors"
-          >
-            cancel
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
 export default function ResultsScreen({
   wpm,
   accuracy,
@@ -196,11 +130,30 @@ export default function ResultsScreen({
   note,
   dailyMode = false,
 }: ResultsProps) {
+  const { user, loading: authLoading } = useAuth();
   // Ref to the off-screen card — captured by html2canvas, never shown in-page
   const hiddenCardRef = useRef<HTMLDivElement>(null);
   const [sharing, setSharing] = useState(false);
-  const [showNicknameModal, setShowNicknameModal] = useState(false);
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [existingScore, setExistingScore] = useState<{ wpm: number; accuracy: number } | null>(null);
+  const [checkingScore, setCheckingScore] = useState(false);
+
+  useEffect(() => {
+    if (!dailyMode || !user) return;
+    setCheckingScore(true);
+    supabase
+      .from("daily_scores")
+      .select("wpm, accuracy")
+      .eq("user_id", user.id)
+      .eq("date", getTodayDateKey())
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setExistingScore(data);
+        setCheckingScore(false);
+      });
+  }, [dailyMode, user]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -261,39 +214,71 @@ export default function ResultsScreen({
     }
   }
 
-  function saveScoreWithNickname(nickname: string) {
-    setNickname(nickname);
-    submitDailyScore(wpm, accuracy, nickname);
-    notifyDailyScoreSubmitted();
-    setScoreSubmitted(true);
-    setShowNicknameModal(false);
+  async function handleSubmitScore() {
+    if (!user || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    const payload = {
+      user_id: user.id,
+      date: getTodayDateKey(),
+      wpm,
+      accuracy,
+      quote_id: quote?.id ?? null,
+    };
+    console.log("[daily score] submitting:", payload);
+    const { error } = await supabase.from("daily_scores").insert(payload);
+    if (error) {
+      console.error("[daily score] insert failed:", error.message, error.details, error.hint, error.code);
+      setSubmitError(`submit failed: ${error.message}`);
+    } else {
+      console.log("[daily score] insert succeeded");
+      setScoreSubmitted(true);
+      notifyDailyScoreSubmitted();
+    }
+    setSubmitting(false);
   }
 
-  function handleSubmitScore() {
-    const saved = getNickname();
-    if (saved) {
-      saveScoreWithNickname(saved);
+  let submitScoreButton: React.ReactNode = null;
+  if (dailyMode && !flawlessFailed) {
+    if (authLoading || checkingScore) {
+      submitScoreButton = (
+        <p className="font-mono text-xs text-subtle">loading…</p>
+      );
+    } else if (!user) {
+      submitScoreButton = (
+        <p className="font-mono text-sm text-subtle">
+          sign in to submit your score
+        </p>
+      );
+    } else if (scoreSubmitted) {
+      submitScoreButton = (
+        <p className="font-mono text-sm text-accent">score submitted ✓</p>
+      );
+    } else if (existingScore) {
+      submitScoreButton = (
+        <p className="font-mono text-sm text-subtle">
+          your score:{" "}
+          <span className="text-accent font-semibold">{existingScore.wpm} wpm</span>
+          {" "}· {existingScore.accuracy}% acc — already submitted today
+        </p>
+      );
     } else {
-      setShowNicknameModal(true);
+      submitScoreButton = (
+        <div className="flex flex-col items-center gap-1">
+          <button
+            onClick={handleSubmitScore}
+            disabled={submitting}
+            className="px-6 py-2.5 bg-surface border border-accent rounded-lg text-accent font-mono text-sm hover:bg-accent/10 transition-colors disabled:opacity-50"
+          >
+            {submitting ? "submitting…" : "submit score"}
+          </button>
+          {submitError && (
+            <p className="font-mono text-xs text-incorrect">{submitError}</p>
+          )}
+        </div>
+      );
     }
   }
-
-  const existingNickname = getNickname();
-  const priorBest = existingNickname ? getBestScoreForNickname(existingNickname) : null;
-  const beatsOrTiesPriorBest = !priorBest || wpm >= priorBest.wpm;
-
-  const submitScoreButton = dailyMode && !flawlessFailed && beatsOrTiesPriorBest && (
-    scoreSubmitted ? (
-      <p className="font-mono text-sm text-accent">score submitted ✓</p>
-    ) : (
-      <button
-        onClick={handleSubmitScore}
-        className="px-6 py-2.5 bg-surface border border-accent rounded-lg text-accent font-mono text-sm hover:bg-accent/10 transition-colors"
-      >
-        submit score
-      </button>
-    )
-  );
 
   const shareButton = (
     <button
@@ -357,12 +342,6 @@ export default function ResultsScreen({
     return (
       <>
         {hiddenCard}
-        {showNicknameModal && (
-          <NicknameModal
-            onSubmit={saveScoreWithNickname}
-            onCancel={() => setShowNicknameModal(false)}
-          />
-        )}
         <div className="fade-in flex flex-col items-center gap-8 w-full max-w-2xl mx-auto px-4">
           {/* Flawless fail header */}
           <div className="text-center">
@@ -421,12 +400,6 @@ export default function ResultsScreen({
   return (
     <>
       {hiddenCard}
-      {showNicknameModal && (
-        <NicknameModal
-          onSubmit={saveScoreWithNickname}
-          onCancel={() => setShowNicknameModal(false)}
-        />
-      )}
       <div className="fade-in flex flex-col items-center gap-8 w-full max-w-2xl mx-auto px-4">
         {/* Main stats */}
         <div className="grid grid-cols-3 gap-6 w-full">
