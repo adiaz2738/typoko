@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import UserButton from "./UserButton";
 
 export default function SiteHeader() {
   return (
@@ -22,7 +25,14 @@ export default function SiteHeader() {
         >
           browse
         </Link>
+        <Link
+          href="/focus"
+          className="font-mono text-xs text-muted hover:text-subtle transition-colors"
+        >
+          focus
+        </Link>
         <span className="text-subtle/60 font-mono text-xs">read. type. learn.</span>
+        <UserButton />
       </nav>
     </header>
   );
