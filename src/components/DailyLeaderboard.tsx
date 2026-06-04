@@ -39,7 +39,7 @@ export default function DailyLeaderboard() {
     // 2. Fetch usernames from profiles for every user_id in those scores
     const map: Record<string, string> = {};
     if (rows.length > 0) {
-      const userIds = [...new Set(rows.map((r) => r.user_id))];
+      const userIds = Array.from(new Set(rows.map((r) => r.user_id)));
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("id, username")
