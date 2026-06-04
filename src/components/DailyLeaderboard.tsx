@@ -12,23 +12,51 @@ interface LeaderboardRow {
 }
 
 export default function DailyLeaderboard() {
-  const { user } = useAuth();
+  const { user, username } = useAuth();
   const [scores, setScores] = useState<LeaderboardRow[]>([]);
+  const [usernameMap, setUsernameMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     setLoading(true);
-    const todayKey = getTodayDateKey();
-    supabase
+
+    // 1. Fetch today's top 10 scores
+    const { data: scoreData, error: scoreError } = await supabase
       .from("daily_scores")
       .select("user_id, wpm, accuracy")
-      .eq("date", todayKey)
+      .eq("date", getTodayDateKey())
       .order("wpm", { ascending: false })
-      .limit(10)
-      .then(({ data }) => {
-        setScores(data ?? []);
-        setLoading(false);
-      });
+      .limit(10);
+
+    if (scoreError) {
+      console.error("[leaderboard] scores:", scoreError.message);
+      setLoading(false);
+      return;
+    }
+
+    const rows = scoreData ?? [];
+
+    // 2. Fetch usernames from profiles for every user_id in those scores
+    const map: Record<string, string> = {};
+    if (rows.length > 0) {
+      const userIds = [...new Set(rows.map((r) => r.user_id))];
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("id, username")
+        .in("id", userIds);
+
+      if (profileError) {
+        console.error("[leaderboard] profiles:", profileError.message, profileError.hint);
+      }
+
+      for (const p of profileData ?? []) {
+        if (p.id && p.username) map[p.id] = p.username;
+      }
+    }
+
+    setScores(rows);
+    setUsernameMap(map);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -63,9 +91,13 @@ export default function DailyLeaderboard() {
           </div>
           {scores.map((score, i) => {
             const isUser = !!user && user.id === score.user_id;
-            const displayName = isUser
-              ? (user.email?.split("@")[0] ?? "you")
-              : score.user_id.slice(0, 8);
+            // Username from profiles map for all rows; current user falls back to
+            // auth context username then email prefix; others fall back to "player"
+            const displayName =
+              usernameMap[score.user_id] ??
+              (isUser
+                ? (username ?? user.email?.split("@")[0] ?? "you")
+                : "player");
             return (
               <div
                 key={score.user_id}

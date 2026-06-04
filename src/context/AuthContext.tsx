@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -12,33 +13,71 @@ import { supabase } from "@/lib/supabase";
 
 interface AuthContextType {
   user: User | null;
+  username: string | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  updateUsername: (newUsername: string) => Promise<{ error: string | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [username, setUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const fetchOrCreateProfile = useCallback(async (u: User) => {
+    const defaultUsername = (u.email?.split("@")[0] ?? "user").slice(0, 20);
+
+    // Insert the profile row if it doesn't already exist. ignoreDuplicates means
+    // an existing row (with a custom username) is left untouched.
+    const { error: upsertError } = await supabase
+      .from("profiles")
+      .upsert({ id: u.id, username: defaultUsername }, { onConflict: "id", ignoreDuplicates: true });
+
+    if (upsertError) {
+      console.error("[auth] profile upsert failed:", upsertError.message, upsertError.code);
+    }
+
+    // Always read back the stored username so we display whatever is actually in the DB.
+    const { data, error: selectError } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", u.id)
+      .maybeSingle();
+
+    if (selectError) {
+      console.error("[auth] profile select failed:", selectError.message, selectError.code);
+    }
+
+    setUsername(data?.username ?? defaultUsername);
+  }, []);
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const u = session?.user ?? null;
+      setUser(u);
+      if (u) await fetchOrCreateProfile(u);
       setLoading(false);
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const u = session?.user ?? null;
+      setUser(u);
+      if (u) {
+        await fetchOrCreateProfile(u);
+      } else {
+        setUsername(null);
+      }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchOrCreateProfile]);
 
   async function signIn(email: string, password: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -64,8 +103,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   }
 
+  async function updateUsername(newUsername: string) {
+    if (!user) return { error: "not signed in" };
+    const trimmed = newUsername.trim().slice(0, 20);
+    if (!trimmed) return { error: "username cannot be empty" };
+    // upsert ensures the row is created if somehow missing, and updated if present.
+    const { error } = await supabase
+      .from("profiles")
+      .upsert({ id: user.id, username: trimmed });
+    if (error) {
+      console.error("[auth] updateUsername failed:", error.message, error.code);
+    } else {
+      setUsername(trimmed);
+    }
+    return { error: error?.message ?? null };
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signInWithGoogle, signOut }}>
+    <AuthContext.Provider
+      value={{ user, username, loading, signIn, signUp, signInWithGoogle, signOut, updateUsername }}
+    >
       {children}
     </AuthContext.Provider>
   );
