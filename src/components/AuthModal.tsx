@@ -2,28 +2,33 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 interface AuthModalProps {
   onClose: () => void;
 }
 
 type Tab = "login" | "signup";
+type View = "auth" | "forgot" | "forgotDone";
 
 export default function AuthModal({ onClose }: AuthModalProps) {
   const { signIn, signUp, signInWithGoogle } = useAuth();
   const [tab, setTab] = useState<Tab>("login");
+  const [view, setView] = useState<View>("auth");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [signupDone, setSignupDone] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     emailRef.current?.focus();
-  }, [tab]);
+  }, [tab, view]);
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -36,6 +41,12 @@ export default function AuthModal({ onClose }: AuthModalProps) {
     setTab(next);
     setError(null);
     setSignupDone(false);
+  }
+
+  function openForgot() {
+    setForgotEmail(email);
+    setForgotError(null);
+    setView("forgot");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -70,6 +81,26 @@ export default function AuthModal({ onClose }: AuthModalProps) {
     setLoading(false);
   }
 
+  async function handleForgot(e: React.FormEvent) {
+    e.preventDefault();
+    setForgotError(null);
+    setForgotLoading(true);
+    if (!supabase) {
+      setForgotError("service not configured");
+      setForgotLoading(false);
+      return;
+    }
+    const { error: err } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+      redirectTo: "https://typoko.com/reset-password",
+    });
+    if (err) {
+      setForgotError(err.message);
+    } else {
+      setView("forgotDone");
+    }
+    setForgotLoading(false);
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 px-4"
@@ -78,24 +109,33 @@ export default function AuthModal({ onClose }: AuthModalProps) {
       <div className="w-full max-w-sm bg-surface border border-border rounded-xl p-6 flex flex-col gap-5">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div className="flex gap-4">
+          {view === "auth" ? (
+            <div className="flex gap-4">
+              <button
+                onClick={() => switchTab("login")}
+                className={`font-mono text-sm font-semibold transition-colors ${
+                  tab === "login" ? "text-accent" : "text-muted hover:text-subtle"
+                }`}
+              >
+                login
+              </button>
+              <button
+                onClick={() => switchTab("signup")}
+                className={`font-mono text-sm font-semibold transition-colors ${
+                  tab === "signup" ? "text-accent" : "text-muted hover:text-subtle"
+                }`}
+              >
+                sign up
+              </button>
+            </div>
+          ) : (
             <button
-              onClick={() => switchTab("login")}
-              className={`font-mono text-sm font-semibold transition-colors ${
-                tab === "login" ? "text-accent" : "text-muted hover:text-subtle"
-              }`}
+              onClick={() => { setView("auth"); setForgotError(null); }}
+              className="font-mono text-xs text-muted hover:text-subtle transition-colors"
             >
-              login
+              ← back to login
             </button>
-            <button
-              onClick={() => switchTab("signup")}
-              className={`font-mono text-sm font-semibold transition-colors ${
-                tab === "signup" ? "text-accent" : "text-muted hover:text-subtle"
-              }`}
-            >
-              sign up
-            </button>
-          </div>
+          )}
           <button
             onClick={onClose}
             className="text-muted hover:text-subtle transition-colors font-mono text-lg leading-none"
@@ -105,75 +145,128 @@ export default function AuthModal({ onClose }: AuthModalProps) {
           </button>
         </div>
 
-        {signupDone ? (
+        {/* Forgot password — confirmation */}
+        {view === "forgotDone" && (
           <div className="flex flex-col gap-3 py-2">
-            <p className="font-mono text-sm text-correct">account created.</p>
+            <p className="font-mono text-sm text-correct">check your email for a reset link.</p>
             <p className="font-mono text-xs text-subtle">
-              check your email to confirm your address, then log in.
+              if the address is registered, you&apos;ll receive a password reset link shortly.
             </p>
-            <button
-              onClick={() => switchTab("login")}
-              className="font-mono text-xs text-accent hover:underline text-left"
-            >
-              go to login →
-            </button>
           </div>
-        ) : (
-          <>
-            {/* Email/password form */}
-            <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-              <input
-                ref={emailRef}
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="email"
-                required
-                className="w-full bg-bg border border-border rounded-lg px-4 py-2.5 font-mono text-sm text-text placeholder:text-muted focus:outline-none focus:border-accent transition-colors"
-                autoComplete="email"
-                autoCapitalize="off"
-              />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="password"
-                required
-                minLength={6}
-                className="w-full bg-bg border border-border rounded-lg px-4 py-2.5 font-mono text-sm text-text placeholder:text-muted focus:outline-none focus:border-accent transition-colors"
-                autoComplete={tab === "login" ? "current-password" : "new-password"}
-              />
+        )}
 
-              {error && (
-                <p className="font-mono text-xs text-incorrect">{error}</p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full px-4 py-2.5 bg-accent text-bg rounded-lg font-mono text-sm font-semibold hover:bg-accent/90 transition-colors disabled:opacity-50"
-              >
-                {loading ? "…" : tab === "login" ? "login" : "create account"}
-              </button>
-            </form>
-
-            {/* Divider */}
-            <div className="flex items-center gap-3">
-              <div className="flex-1 border-t border-border" />
-              <span className="font-mono text-xs text-subtle">or</span>
-              <div className="flex-1 border-t border-border" />
-            </div>
-
-            {/* Google OAuth */}
+        {/* Forgot password — form */}
+        {view === "forgot" && (
+          <form onSubmit={handleForgot} className="flex flex-col gap-3">
+            <p className="font-mono text-xs text-subtle">
+              enter your email and we&apos;ll send you a reset link.
+            </p>
+            <input
+              ref={emailRef}
+              type="email"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+              placeholder="email"
+              required
+              className="w-full bg-bg border border-border rounded-lg px-4 py-2.5 font-mono text-sm text-text placeholder:text-muted focus:outline-none focus:border-accent transition-colors"
+              autoComplete="email"
+              autoCapitalize="off"
+            />
+            {forgotError && (
+              <p className="font-mono text-xs text-incorrect">{forgotError}</p>
+            )}
             <button
-              onClick={handleGoogle}
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 bg-bg border border-border rounded-lg font-mono text-sm text-text hover:border-accent hover:text-accent transition-colors disabled:opacity-50"
+              type="submit"
+              disabled={forgotLoading}
+              className="w-full px-4 py-2.5 bg-accent text-bg rounded-lg font-mono text-sm font-semibold hover:bg-accent/90 transition-colors disabled:opacity-50"
             >
-              <GoogleIcon />
-              continue with google
+              {forgotLoading ? "…" : "send reset link"}
             </button>
-          </>
+          </form>
+        )}
+
+        {/* Main auth view */}
+        {view === "auth" && (
+          signupDone ? (
+            <div className="flex flex-col gap-3 py-2">
+              <p className="font-mono text-sm text-correct">account created.</p>
+              <p className="font-mono text-xs text-subtle">
+                check your email to confirm your address, then log in.
+              </p>
+              <button
+                onClick={() => switchTab("login")}
+                className="font-mono text-xs text-accent hover:underline text-left"
+              >
+                go to login →
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Email/password form */}
+              <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+                <input
+                  ref={emailRef}
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="email"
+                  required
+                  className="w-full bg-bg border border-border rounded-lg px-4 py-2.5 font-mono text-sm text-text placeholder:text-muted focus:outline-none focus:border-accent transition-colors"
+                  autoComplete="email"
+                  autoCapitalize="off"
+                />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="password"
+                  required
+                  minLength={6}
+                  className="w-full bg-bg border border-border rounded-lg px-4 py-2.5 font-mono text-sm text-text placeholder:text-muted focus:outline-none focus:border-accent transition-colors"
+                  autoComplete={tab === "login" ? "current-password" : "new-password"}
+                />
+
+                {tab === "login" && (
+                  <button
+                    type="button"
+                    onClick={openForgot}
+                    className="font-mono text-xs text-muted hover:text-subtle transition-colors text-right -mt-1"
+                  >
+                    forgot password?
+                  </button>
+                )}
+
+                {error && (
+                  <p className="font-mono text-xs text-incorrect">{error}</p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full px-4 py-2.5 bg-accent text-bg rounded-lg font-mono text-sm font-semibold hover:bg-accent/90 transition-colors disabled:opacity-50"
+                >
+                  {loading ? "…" : tab === "login" ? "login" : "create account"}
+                </button>
+              </form>
+
+              {/* Divider */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 border-t border-border" />
+                <span className="font-mono text-xs text-subtle">or</span>
+                <div className="flex-1 border-t border-border" />
+              </div>
+
+              {/* Google OAuth */}
+              <button
+                onClick={handleGoogle}
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 bg-bg border border-border rounded-lg font-mono text-sm text-text hover:border-accent hover:text-accent transition-colors disabled:opacity-50"
+              >
+                <GoogleIcon />
+                continue with google
+              </button>
+            </>
+          )
         )}
       </div>
     </div>

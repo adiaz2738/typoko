@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { quotes } from "@/data/quotes";
+import { authors } from "@/data/authors";
 import SiteHeader from "@/components/SiteHeader";
 
 interface Props {
@@ -31,6 +32,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default function AuthorPage({ params }: Props) {
   const authorQuotes = quotes.filter((q) => q.authorSlug === params.author);
+  const authorData = authors.find((a) => a.slug === params.author);
 
   return (
     <div className="min-h-screen bg-bg flex flex-col">
@@ -44,9 +46,25 @@ export default function AuthorPage({ params }: Props) {
             <div className="flex flex-col gap-1">
               <p className="font-mono text-xs text-muted tracking-widest">author</p>
               <h1 className="font-mono text-xl text-text font-bold">
-                {authorQuotes[0].author}
+                {authorData?.wikiUrl ? (
+                  <a
+                    href={authorData.wikiUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-accent transition-colors"
+                  >
+                    {authorQuotes[0].author}
+                  </a>
+                ) : (
+                  authorQuotes[0].author
+                )}
               </h1>
-              <p className="font-mono text-xs text-subtle">
+              {authorData?.bio && (
+                <p className="font-mono text-xs text-subtle leading-relaxed mt-1 max-w-xl">
+                  {authorData.bio}
+                </p>
+              )}
+              <p className="font-mono text-xs text-subtle mt-1">
                 {authorQuotes.length}{" "}
                 {authorQuotes.length === 1 ? "passage" : "passages"}
               </p>

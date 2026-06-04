@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 import AuthModal from "./AuthModal";
 
 export default function UserButton() {
@@ -13,6 +14,9 @@ export default function UserButton() {
   const [usernameInput, setUsernameInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [resetView, setResetView] = useState<"idle" | "sent">("idle");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -23,6 +27,8 @@ export default function UserButton() {
         setShowDropdown(false);
         setEditingUsername(false);
         setSaveError(null);
+        setResetView("idle");
+        setResetError(null);
       }
     }
     document.addEventListener("mousedown", handler);
@@ -65,6 +71,29 @@ export default function UserButton() {
     setSaving(false);
   }
 
+  async function handleResetPassword() {
+    if (!supabase || !user?.email) return;
+    setResetLoading(true);
+    setResetError(null);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(user.email, {
+      redirectTo: "https://typoko.com/reset-password",
+    });
+    if (err) {
+      setResetError(err.message);
+    } else {
+      setResetView("sent");
+    }
+    setResetLoading(false);
+  }
+
+  function openResetPassword() {
+    setEditingUsername(false);
+    setSaveError(null);
+    setResetView("idle");
+    setResetError(null);
+    handleResetPassword();
+  }
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
@@ -72,6 +101,8 @@ export default function UserButton() {
           setShowDropdown((d) => !d);
           setEditingUsername(false);
           setSaveError(null);
+          setResetView("idle");
+          setResetError(null);
         }}
         className="font-mono text-xs text-accent hover:opacity-75 transition-opacity"
       >
@@ -125,11 +156,31 @@ export default function UserButton() {
               onClick={() => {
                 setUsernameInput(username ?? "");
                 setEditingUsername(true);
+                setResetView("idle");
+                setResetError(null);
               }}
               className="w-full text-left font-mono text-xs text-muted hover:text-text px-3 py-1.5 transition-colors"
             >
               change username
             </button>
+          )}
+
+          {resetView === "sent" ? (
+            <div className="px-3 py-1.5 flex flex-col gap-1">
+              <p className="font-mono text-xs text-correct">check your email for a reset link.</p>
+            </div>
+          ) : (
+            <button
+              onClick={openResetPassword}
+              disabled={resetLoading}
+              className="w-full text-left font-mono text-xs text-muted hover:text-text px-3 py-1.5 transition-colors disabled:opacity-40"
+            >
+              {resetLoading ? "sending…" : "reset password"}
+            </button>
+          )}
+
+          {resetError && (
+            <p className="font-mono text-xs text-incorrect px-3 pb-1">{resetError}</p>
           )}
 
           <div className="border-t border-border my-1" />
