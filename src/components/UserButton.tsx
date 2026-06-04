@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import AuthModal from "./AuthModal";
 
@@ -79,9 +80,13 @@ export default function UserButton() {
 
       {showDropdown && (
         <div className="absolute right-0 top-7 bg-surface border border-border rounded-lg py-1 z-50 min-w-44 shadow-lg">
-          <p className="font-mono text-xs text-subtle px-3 py-1.5 truncate max-w-48">
-            {user.email}
-          </p>
+          <Link
+            href="/profile"
+            onClick={() => setShowDropdown(false)}
+            className="block w-full text-left font-mono text-xs text-muted hover:text-text px-3 py-1.5 transition-colors"
+          >
+            profile
+          </Link>
 
           <div className="border-t border-border my-1" />
 

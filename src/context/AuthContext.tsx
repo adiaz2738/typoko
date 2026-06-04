@@ -30,10 +30,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchOrCreateProfile = useCallback(async (u: User) => {
+    if (!supabase) return;
     const defaultUsername = (u.email?.split("@")[0] ?? "user").slice(0, 20);
 
-    // Insert the profile row if it doesn't already exist. ignoreDuplicates means
-    // an existing row (with a custom username) is left untouched.
     const { error: upsertError } = await supabase
       .from("profiles")
       .upsert({ id: u.id, username: defaultUsername }, { onConflict: "id", ignoreDuplicates: true });
@@ -42,7 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("[auth] profile upsert failed:", upsertError.message, upsertError.code);
     }
 
-    // Always read back the stored username so we display whatever is actually in the DB.
     const { data, error: selectError } = await supabase
       .from("profiles")
       .select("username")
@@ -57,6 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!supabase) { setLoading(false); return; }
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       const u = session?.user ?? null;
       setUser(u);
@@ -80,16 +80,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchOrCreateProfile]);
 
   async function signIn(email: string, password: string) {
+    if (!supabase) return { error: "auth not configured" };
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error?.message ?? null };
   }
 
   async function signUp(email: string, password: string) {
+    if (!supabase) return { error: "auth not configured" };
     const { error } = await supabase.auth.signUp({ email, password });
     return { error: error?.message ?? null };
   }
 
   async function signInWithGoogle() {
+    if (!supabase) return { error: "auth not configured" };
     const isProd = process.env.NODE_ENV === "production";
     const redirectTo = isProd ? "https://typoko.com/" : "http://localhost:3000/";
     const { error } = await supabase.auth.signInWithOAuth({
@@ -100,14 +103,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    await supabase?.auth.signOut();
   }
 
   async function updateUsername(newUsername: string) {
+    if (!supabase) return { error: "auth not configured" };
     if (!user) return { error: "not signed in" };
     const trimmed = newUsername.trim().slice(0, 20);
     if (!trimmed) return { error: "username cannot be empty" };
-    // upsert ensures the row is created if somehow missing, and updated if present.
     const { error } = await supabase
       .from("profiles")
       .upsert({ id: user.id, username: trimmed });

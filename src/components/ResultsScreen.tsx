@@ -5,6 +5,7 @@ import { Quote } from "@/data/quotes";
 import { getTodayDateKey, notifyDailyScoreSubmitted } from "@/utils/dailyLeaderboard";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { TextMode, TimerMode } from "./ModeSelector";
 
 interface ResultsProps {
   wpm: number;
@@ -19,6 +20,8 @@ interface ResultsProps {
   charsBeforeFail?: number;
   note?: string;
   dailyMode?: boolean;
+  mode?: TextMode;
+  timer?: TimerMode;
 }
 
 function formatTime(seconds: number): string {
@@ -70,14 +73,14 @@ const ShareCard = ({ wpm, accuracy, quote }: ShareCardProps) => (
     </span>
 
     {/* WPM */}
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <span style={{ color: "#7a7a96", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.15em" }}>
         wpm
       </span>
-      <span style={{ color: "#e2b714", fontSize: 64, fontWeight: 700, lineHeight: 1 }}>
+      <span style={{ color: "#e2b714", fontSize: 64, fontWeight: 700, lineHeight: 1, margin: "12px 0" }}>
         {wpm}
       </span>
-      <span style={{ color: "#7a7a96", fontSize: 13, marginTop: 10 }}>{getWpmLabel(wpm)}</span>
+      <span style={{ color: "#7a7a96", fontSize: 13 }}>{getWpmLabel(wpm)}</span>
     </div>
 
     {/* Accuracy */}
@@ -129,6 +132,8 @@ export default function ResultsScreen({
   charsBeforeFail = 0,
   note,
   dailyMode = false,
+  mode,
+  timer,
 }: ResultsProps) {
   const { user, loading: authLoading } = useAuth();
   // Ref to the off-screen card — captured by html2canvas, never shown in-page
@@ -141,7 +146,22 @@ export default function ResultsScreen({
   const [checkingScore, setCheckingScore] = useState(false);
 
   useEffect(() => {
-    if (!dailyMode || !user) return;
+    if (!supabase || !user || flawlessFailed || mode == null) return;
+    supabase.from("typing_results").insert({
+      user_id: user.id,
+      wpm,
+      accuracy,
+      mode,
+      timer: timer ?? null,
+      quote_id: quote?.id ?? null,
+    }).then(({ error }) => {
+      if (error) console.error("[typing_results] insert failed:", error.message);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || !dailyMode || !user) return;
     setCheckingScore(true);
     supabase
       .from("daily_scores")
@@ -215,7 +235,7 @@ export default function ResultsScreen({
   }
 
   async function handleSubmitScore() {
-    if (!user || submitting) return;
+    if (!supabase || !user || submitting) return;
     setSubmitting(true);
     setSubmitError(null);
     const payload = {

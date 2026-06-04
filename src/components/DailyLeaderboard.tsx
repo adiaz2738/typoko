@@ -18,6 +18,7 @@ export default function DailyLeaderboard() {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
 
     // 1. Fetch today's top 10 scores

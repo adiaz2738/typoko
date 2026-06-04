@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import UserButton from "./UserButton";
-
 interface HeaderProps {
   onLogoClick?: () => void;
 }

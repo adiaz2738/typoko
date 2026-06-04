@@ -410,6 +410,8 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
         charsBeforeFail={flawlessCharsCompleted}
         note={resultsNote}
         dailyMode={dailyMode}
+        mode={textMode}
+        timer={timerMode}
       />
     );
   }
