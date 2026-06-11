@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 
@@ -24,6 +25,11 @@ export default function AuthModal({ onClose }: AuthModalProps) {
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotError, setForgotError] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     emailRef.current?.focus();
@@ -101,9 +107,11 @@ export default function AuthModal({ onClose }: AuthModalProps) {
     setForgotLoading(false);
   }
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 px-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/80 px-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="w-full max-w-sm bg-surface border border-border rounded-xl p-6 flex flex-col gap-5">
@@ -269,7 +277,8 @@ export default function AuthModal({ onClose }: AuthModalProps) {
           )
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

@@ -41,6 +41,8 @@ Next.js 14 (App Router) typing speed test with multiple routes.
 **Data sources:**
 - `src/data/quotes.ts` — `Quote` objects (`{ id, text, author, source, affiliateLink, authorSlug, passageSlug }`). `id` is mandatory (sequential integer). `affiliateLink` uses Amazon tag `ddevstore-20` — preserve when adding quotes. Short quotes (under 100 words) should be avoided.
 - `src/data/words.ts` — `commonWords[]` pool; `generateWordSet(n)` picks `n` random words and joins them with spaces.
+- `src/data/authors.ts` — `Author` objects (`{ slug, name, bio, wikiUrl }`) used to render author bios with Wikipedia links on author SEO pages.
+- `src/data/posts.ts` — `BlogPost` metadata (`{ slug, title, date, excerpt }`) for the blog section.
 
 **Modes:**
 - Text: `"quotes"` (full quote string) or `"words"` (40 random words)
@@ -51,6 +53,8 @@ Next.js 14 (App Router) typing speed test with multiple routes.
 - Auth context at `src/context/AuthContext.tsx` — provides `{ user, loading }` via `useAuth()`
 - Supabase auth supports email/password and Google OAuth
 - Custom SMTP configured with support@typoko.com
+- Forgot password / reset password flow implemented in `AuthModal` (request reset link) and the reset-password page (set new password)
+- `AuthModal` renders via a React Portal (`createPortal` to `document.body`) so it always appears centered above everything, including the mobile hamburger menu overlay
 - `daily_scores` table columns: `user_id`, `date` (ISO format `YYYY-MM-DD`), `wpm`, `accuracy`, `quote_id`
 - Date keys from `getTodayDateKey()` in `src/utils/dailyLeaderboard.ts` return ISO format `YYYY-MM-DD`
 
@@ -58,7 +62,9 @@ Next.js 14 (App Router) typing speed test with multiple routes.
 
 ## Styling
 
-Tailwind with a custom dark theme defined in `tailwind.config.ts`. Semantic color tokens: `bg`, `surface`, `border`, `muted`, `text`, `subtle`, `accent` (#e2b714 yellow), `correct` (green), `incorrect` (red), `current` (white). Always use these tokens rather than raw colors. Font stack is JetBrains Mono for all monospace elements, loaded via Google Fonts in `globals.css`.
+Tailwind with a custom dark theme defined in `tailwind.config.ts`. Semantic color tokens: `bg`, `surface`, `border`, `muted`, `text`, `subtle`, `accent` (#e2b714 yellow), `correct` (green), `incorrect` (red), `current` (white). Always use these tokens rather than raw colors. Text brightness was increased across body copy/labels for readability — keep using the semantic tokens (`text`/`subtle`/`muted`) rather than reintroducing low-contrast raw colors. Font stack is JetBrains Mono for all monospace elements, loaded via Google Fonts in `globals.css`.
+
+`SiteHeader` and `Header` include a mobile hamburger menu (`menuOpen` state) with an overlay/panel above `md` breakpoints hidden in favor of the inline desktop nav.
 
 Two global CSS utilities: `.cursor-blink` (blinking caret animation) and `.fade-in` (entry animation used on ResultsScreen).
 
@@ -104,13 +110,18 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 - Supabase auth with email/password and Google OAuth
 - Custom SMTP with support@typoko.com
 - Auth modal and user button in header
+- Auth modal rendered via React Portal, appears above mobile hamburger menu overlay
+- Forgot password and reset password flow
 - Today's Passage daily challenge page (`/daily`)
 - Daily leaderboard (Supabase-backed, top 10, resets daily)
 - Shareable results card with download/share button (html2canvas)
 - Author and passage SEO pages (`/type/[author]`, `/type/[author]/[passage]`)
+- Author bios with Wikipedia links (`src/data/authors.ts`)
 - Library page with search bar (`/library`)
-- Header navigation (browse, daily, focus links)
+- Header navigation (browse, daily, focus, blog links) with mobile hamburger menu
 - Focus Mode page with error tracking (`/focus`)
+- Blog section (`/blog`) with first post, "Best Typing Tests for Book Lovers"
+- Text brightness improvements across body copy/labels
 - Vercel Analytics and Speed Insights
 
 **Remaining:**
@@ -124,8 +135,7 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 - Real-time on-screen keyboard showing keypresses as you type
 - Keyboard heatmap showing error keys after test
 - Focus Mode stat tracking and targeted practice drills based on error patterns
-- Blog content for SEO ("typing test with real books", "literary typing test", author-focused posts)
-- Author bios on author pages
+- Additional blog content for SEO ("typing test with real books", "literary typing test", author-focused posts)
 - User passage suggestion form
 - Poem and screenplay formatting support (future)
 - Flawless daily challenge variant (future)
@@ -155,10 +165,11 @@ Typoko is a minimal, fast typing speed website. The goal is to be cleaner and be
 ## Pending Fixes
 
 - **Daily leaderboard submit button:** Insert was silently failing — `display_name` column does not exist in `daily_scores` table. Removed from insert. Date format also fixed to ISO `YYYY-MM-DD`. Error logging and visible error state added. Needs end-to-end verification that scores are persisting and appearing in leaderboard.
-- **Mobile passage preload:** On touch devices, stale closure lag causes the preload threshold check to fire too late. Touch threshold lowered to 250 chars but still not reliable on all devices. May need a ref-based approach for the preload trigger.
+- **Mobile passage preload:** On touch devices, stale closure lag causes the preload threshold check to fire too late. Multiple attempts made (touch-specific thresholds, ref-based position tracking) without a reliable fix — left as a known issue for now.
 - **Mobile scroll above keyboard:** When typing starts on touch devices, the typing area should scroll above the virtual keyboard. Implemented with `scrollIntoView` but inconsistent across browsers.
 - **Samsung tablet keystroke registration:** Some Samsung tablet keyboards do not reliably trigger `onKeyDown` or `onInput`. Needs investigation into which event fires and whether `compositionend` is needed.
-- **Chrome iOS lag:** Input handling lags noticeably on Chrome for iOS. May be related to how WKWebView handles hidden inputs. Needs profiling.
+- **Chrome iOS lag:** Input handling lags slightly on Chrome for iOS. Improved but not fully resolved.
+- **Safari iOS typing lag:** Fixed via a unified input handler — keystroke processing now dispatches off the native `input` event's `inputType` instead of branching `onKeyDown` logic by browser/device.
 
 ## Focus Mode
 

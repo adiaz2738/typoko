@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import AuthModal from "./AuthModal";
 
-export default function UserButton() {
+export default function UserButton({ variant = "default" }: { variant?: "default" | "mobile" }) {
   const { user, username, loading, signOut, updateUsername } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -39,14 +39,25 @@ export default function UserButton() {
     if (editingUsername) inputRef.current?.focus();
   }, [editingUsername]);
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <span
+        className="inline-block h-3 w-12 rounded-sm bg-surface animate-pulse"
+        aria-hidden="true"
+      />
+    );
+  }
 
   if (!user) {
     return (
       <>
         <button
           onClick={() => setShowModal(true)}
-          className="font-mono text-xs text-muted hover:text-subtle transition-colors"
+          className={
+            variant === "mobile"
+              ? "font-mono text-lg text-bg"
+              : "font-mono text-xs text-muted hover:text-subtle transition-colors"
+          }
         >
           login
         </button>
@@ -104,7 +115,11 @@ export default function UserButton() {
           setResetView("idle");
           setResetError(null);
         }}
-        className="font-mono text-xs text-accent hover:opacity-75 transition-opacity"
+        className={
+          variant === "mobile"
+            ? "font-mono text-lg text-bg"
+            : "font-mono text-xs text-accent hover:opacity-75 transition-opacity"
+        }
       >
         {label}
       </button>
