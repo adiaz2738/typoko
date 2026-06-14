@@ -36,6 +36,18 @@ const PRELOAD_CHARS_THRESHOLD = 1000;
 // so even with 100–200 chars of closure lag the preload fires within the last ~50 words.
 const PRELOAD_CHARS_THRESHOLD_TOUCH = 250;
 
+// Virtualization: only render a window of characters around the current position
+// instead of the full passage (which can be 10,000+ chars for long quotes).
+// RENDER_WINDOW_CHARS is the size of the rendered slice; the window is recentered
+// (in whole-page increments, see the scroll effect) once the current page advances
+// past RENDER_WINDOW_RECENTER_PAGE, keeping RENDER_WINDOW_KEEP_PAGES of buffer above.
+const RENDER_WINDOW_CHARS = 1200;
+const RENDER_WINDOW_KEEP_PAGES = 1;
+const RENDER_WINDOW_RECENTER_PAGE = 3;
+// If the user backspaces before the rendered window's start, jump the window
+// back to include the current position with this many chars of buffer.
+const RENDER_WINDOW_BACK_BUFFER_CHARS = 400;
+
 function buildCharData(text: string): CharData[] {
   return text.split("").map((char, i) => ({
     char,
@@ -64,8 +76,7 @@ function formatTimer(seconds: number, countdown: boolean, limit: number | null):
 }
 
 function getTextWithRandomStart(text: string): string {
-  const wordCount = text.trim().split(/\s+/).length;
-  if (wordCount <= 500 || Math.random() > 0.7) return text;
+  if (Math.random() > 0.7) return text;
   const positions: number[] = [];
   const re = /[.!?]\s+/g;
   let m: RegExpExecArray | null;
@@ -89,6 +100,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
   const [liveWpm, setLiveWpm] = useState(0);
   const [liveAccuracy, setLiveAccuracy] = useState(100);
   const [scrollY, setScrollY] = useState(0);
+  const [windowStart, setWindowStart] = useState(0);
   const [flawlessFailed, setFlawlessFailed] = useState(false);
   const [flawlessCharsCompleted, setFlawlessCharsCompleted] = useState(0);
 
@@ -108,10 +120,12 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
   const charRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const scrollYRef = useRef(0);
   const currentQuoteRef = useRef<Quote | null>(null);
+  const lastQuoteIdRef = useRef<number | null>(null);
   const currentTextRef = useRef<string>("");
   const startTimeRef = useRef<number>(0);
   const finishedElapsedRef = useRef<number>(0);
   const plannedEndRef = useRef(0);
+  const isPreloadingRef = useRef(false);
 
   const countdown = timerMode !== null;
   const isTimedMode = timerMode !== null;
@@ -128,7 +142,8 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
         quote = initialQuoteRef.current;
         text = quote.text;
       } else {
-        quote = getRandomQuote();
+        quote = getRandomQuote(lastQuoteIdRef.current ?? undefined);
+        lastQuoteIdRef.current = quote.id;
         text = getTextWithRandomStart(quote.text);
       }
     } else {
@@ -140,6 +155,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
 
     plannedEndRef.current = text.length;
     currentIndexRef.current = 0;
+    isPreloadingRef.current = false;
     currentQuoteRef.current = quote;
     currentTextRef.current = text;
     setCurrentQuote(quote);
@@ -156,6 +172,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
     setFlawlessCharsCompleted(0);
     scrollYRef.current = 0;
     setScrollY(0);
+    setWindowStart(0);
     elapsedRef.current = 0;
     correctRef.current = 0;
     incorrectRef.current = 0;
@@ -253,11 +270,13 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
       ? PRELOAD_CHARS_THRESHOLD_TOUCH
       : PRELOAD_CHARS_THRESHOLD;
     let preloadChars: CharData[] = [];
-    if (isChaining && plannedEndRef.current - currentIndexRef.current <= preloadThreshold) {
+    if (!isPreloadingRef.current && isChaining && plannedEndRef.current - currentIndexRef.current <= preloadThreshold) {
+      isPreloadingRef.current = true;
       let chainText = " ";
       let chainQuote: Quote | null = null;
       if (textMode === "quotes") {
-        chainQuote = getRandomQuote();
+        chainQuote = getRandomQuote(lastQuoteIdRef.current ?? undefined);
+        lastQuoteIdRef.current = chainQuote.id;
         chainText += getTextWithRandomStart(chainQuote.text);
       } else {
         const wc = timerMode !== null ? Math.max(60, Math.ceil((timerMode / 60) * 120)) : 60;
@@ -266,6 +285,7 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
       preloadChars = chainText.split("").map(char => ({ char, state: "pending" as CharState }));
       plannedEndRef.current += chainText.length;
       if (chainQuote) currentQuoteRef.current = chainQuote;
+      isPreloadingRef.current = false;
     }
 
     setChars((prev) => {
@@ -377,18 +397,50 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
     }
   }, [started, startTimer, processTypedChar]);
 
-  // Page through text in VISIBLE_HEIGHT_PX chunks as the current char advances
+  // Page through text in VISIBLE_HEIGHT_PX chunks as the current char advances.
+  // Also keeps the virtualized render window (windowStart) centered around the
+  // current position — recentering happens in whole-page increments so the
+  // translateY adjustment exactly cancels out the shift in rendered content,
+  // making it visually seamless.
   useEffect(() => {
+    // Backspaced before the rendered window — jump the window back so the
+    // current char is rendered again. scrollY will be recalculated once the
+    // window updates and this effect re-runs.
+    if (currentIndex < windowStart) {
+      setWindowStart(Math.max(0, currentIndex - RENDER_WINDOW_BACK_BUFFER_CHARS));
+      return;
+    }
+
     const charEl = charRefs.current[currentIndex];
     if (!charEl) return;
     const charTop = charEl.offsetTop;
     const page = Math.floor(charTop / VISIBLE_HEIGHT_PX);
+
+    if (page >= RENDER_WINDOW_RECENTER_PAGE) {
+      const targetTopPx = (page - RENDER_WINDOW_KEEP_PAGES) * VISIBLE_HEIGHT_PX;
+      let newWindowStart = windowStart;
+      for (let idx = windowStart; idx <= currentIndex; idx++) {
+        const el = charRefs.current[idx];
+        if (el && el.offsetTop >= targetTopPx) {
+          newWindowStart = idx;
+          break;
+        }
+      }
+      const newScrollY = RENDER_WINDOW_KEEP_PAGES * VISIBLE_HEIGHT_PX;
+      if (newWindowStart !== windowStart) setWindowStart(newWindowStart);
+      if (newScrollY !== scrollYRef.current) {
+        scrollYRef.current = newScrollY;
+        setScrollY(newScrollY);
+      }
+      return;
+    }
+
     const newScrollY = page * VISIBLE_HEIGHT_PX;
     if (newScrollY !== scrollYRef.current) {
       scrollYRef.current = newScrollY;
       setScrollY(newScrollY);
     }
-  }, [currentIndex]);
+  }, [currentIndex, windowStart]);
 
   const incorrectCount = incorrectRef.current;
   const timerLabel = formatTimer(elapsed, countdown, timerMode);
@@ -452,7 +504,8 @@ export default function TypingTest({ textMode, timerMode, flawlessMode, initialQ
             transition: scrollY === 0 ? "none" : "transform 180ms ease",
           }}
         >
-          {chars.map((c, i) => {
+          {chars.slice(windowStart, windowStart + RENDER_WINDOW_CHARS).map((c, localI) => {
+            const i = windowStart + localI;
             let color = "text-muted";
             if (c.state === "correct") color = "text-correct";
             else if (c.state === "incorrect") color = "text-incorrect";

@@ -1,10 +1,40 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import SiteHeader from "@/components/SiteHeader";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import AuthModal from "@/components/AuthModal";
+
+type ModeFilter = "all" | "quotes" | "words";
+
+interface ChartPoint {
+  index: number;
+  date: string;
+  wpm: number;
+  rollingAvg: number;
+}
+
+function buildChartData(results: TypingResult[], modeFilter: ModeFilter): ChartPoint[] {
+  const chronological = [...results].reverse();
+  const filtered = modeFilter === "all"
+    ? chronological
+    : chronological.filter((r) => r.mode === modeFilter);
+
+  return filtered.map((r, i) => {
+    const window = filtered.slice(Math.max(0, i - 4), i + 1);
+    const rollingAvg = Math.round(window.reduce((s, x) => s + x.wpm, 0) / window.length);
+    return { index: i, date: formatShortDate(r.created_at), wpm: r.wpm, rollingAvg };
+  });
+}
 
 interface TypingResult {
   id: string;
@@ -27,6 +57,30 @@ interface Stats {
   bestWpm: number;
   avgWpmQuotes: number | null;
   avgWpmWords: number | null;
+}
+
+interface PersonalBest {
+  key: string;
+  mode: string;
+  timer: number;
+  wpm: number;
+}
+
+// Personal bests only apply to timed modes — untimed (timer === null) has no
+// fixed duration to compare runs against, so it's excluded entirely.
+function computePersonalBests(results: TypingResult[]): PersonalBest[] {
+  const bests = new Map<string, PersonalBest>();
+  for (const r of results) {
+    if (r.timer === null) continue;
+    const key = `${r.mode}-${r.timer}`;
+    const existing = bests.get(key);
+    if (!existing || r.wpm > existing.wpm) {
+      bests.set(key, { key, mode: r.mode, timer: r.timer, wpm: r.wpm });
+    }
+  }
+  return Array.from(bests.values()).sort((a, b) =>
+    a.mode !== b.mode ? a.mode.localeCompare(b.mode) : a.timer - b.timer
+  );
 }
 
 function formatDate(iso: string): string {
@@ -69,14 +123,19 @@ export default function ProfilePage() {
   const [fetching, setFetching] = useState(false);
   const [showModal, setShowModal] = useState(false);
 
+  const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
+
   const [usernameInput, setUsernameInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fetchedUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user || !supabase) return;
+    if (fetchedUserIdRef.current === user.id) return;
+    fetchedUserIdRef.current = user.id;
     setFetching(true);
 
     Promise.all([
@@ -95,6 +154,9 @@ export default function ProfilePage() {
       setFetching(false);
     });
   }, [user]);
+
+  const chartData = useMemo(() => buildChartData(results, modeFilter), [results, modeFilter]);
+  const personalBests = useMemo(() => computePersonalBests(results), [results]);
 
   async function handleSaveUsername(e: React.FormEvent) {
     e.preventDefault();
@@ -201,6 +263,22 @@ export default function ProfilePage() {
                 <StatCard label="best wpm" value={stats.bestWpm.toString()} />
               </div>
 
+              {/* Personal bests */}
+              {personalBests.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  <p className="font-mono text-xs text-muted tracking-widest uppercase">personal bests</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {personalBests.map((pb) => (
+                      <StatCard
+                        key={pb.key}
+                        label={`${pb.mode} · ${timerLabel(pb.timer)}`}
+                        value={pb.wpm.toString()}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Mode breakdown */}
               {(stats.avgWpmQuotes !== null || stats.avgWpmWords !== null) && (
                 <div className="flex flex-col gap-3">
@@ -215,6 +293,85 @@ export default function ProfilePage() {
                   </div>
                 </div>
               )}
+
+              {/* WPM progress chart */}
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <p className="font-mono text-xs text-muted tracking-widest uppercase">wpm over time</p>
+                  <select
+                    value={modeFilter}
+                    onChange={(e) => setModeFilter(e.target.value as ModeFilter)}
+                    className="bg-surface border border-border rounded-lg px-3 py-1.5 font-mono text-xs text-text focus:outline-none focus:border-accent transition-colors"
+                  >
+                    <option value="all">all modes</option>
+                    <option value="quotes">quotes</option>
+                    <option value="words">words</option>
+                  </select>
+                </div>
+                {chartData.length === 0 ? (
+                  <div className="bg-surface border border-border rounded-xl p-8 text-center">
+                    <p className="font-mono text-sm text-subtle">no tests for this mode yet.</p>
+                  </div>
+                ) : (
+                  <div className="bg-surface border border-border rounded-xl p-4 h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: -16 }}>
+                        <XAxis
+                          dataKey="index"
+                          type="number"
+                          domain={[0, chartData.length - 1]}
+                          tick={{ fill: "#737373", fontSize: 11, fontFamily: "JetBrains Mono, monospace" }}
+                          axisLine={{ stroke: "#2a2a36" }}
+                          tickLine={false}
+                          interval="preserveStartEnd"
+                          minTickGap={40}
+                          tickFormatter={(value) => chartData[Math.round(value)]?.date ?? ""}
+                        />
+                        <YAxis
+                          tick={{ fill: "#737373", fontSize: 11, fontFamily: "JetBrains Mono, monospace" }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={40}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "#1a1a22",
+                            border: "1px solid #2a2a36",
+                            borderRadius: "8px",
+                            fontFamily: "JetBrains Mono, monospace",
+                            fontSize: "12px",
+                          }}
+                          labelStyle={{ color: "#a3a3a3" }}
+                          itemStyle={{ color: "#d4d4d4" }}
+                          labelFormatter={(value) => chartData[Math.round(value as number)]?.date ?? ""}
+                          cursor={{ stroke: "#2a2a36" }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="wpm"
+                          name="wpm"
+                          stroke="#e2b714"
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4, fill: "#e2b714", stroke: "#e2b714" }}
+                          isAnimationActive={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="rollingAvg"
+                          name="avg (5)"
+                          stroke="#737373"
+                          strokeWidth={2}
+                          strokeDasharray="4 4"
+                          dot={false}
+                          activeDot={{ r: 4, fill: "#737373", stroke: "#737373" }}
+                          isAnimationActive={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
 
               {/* Recent tests */}
               <div className="flex flex-col gap-3">

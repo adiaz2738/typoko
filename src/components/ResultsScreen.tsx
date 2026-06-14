@@ -144,19 +144,50 @@ export default function ResultsScreen({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [existingScore, setExistingScore] = useState<{ wpm: number; accuracy: number } | null>(null);
   const [checkingScore, setCheckingScore] = useState(false);
+  const [isNewBest, setIsNewBest] = useState(false);
 
   useEffect(() => {
     if (!supabase || !user || flawlessFailed || mode == null) return;
-    supabase.from("typing_results").insert({
-      user_id: user.id,
-      wpm,
-      accuracy,
-      mode,
-      timer: timer ?? null,
-      quote_id: quote?.id ?? null,
-    }).then(({ error }) => {
-      if (error) console.error("[typing_results] insert failed:", error.message);
-    });
+
+    async function saveResultAndCheckBest() {
+      if (!supabase || !user) return;
+
+      // Personal bests only apply to timed modes — untimed has no fixed
+      // duration to compare against, so skip the lookup entirely.
+      let previousBest: number | null = null;
+      if (timer !== null) {
+        const { data } = await supabase
+          .from("typing_results")
+          .select("wpm")
+          .eq("user_id", user.id)
+          .eq("mode", mode)
+          .eq("timer", timer)
+          .order("wpm", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        previousBest = data?.wpm ?? null;
+      }
+
+      const { error } = await supabase.from("typing_results").insert({
+        user_id: user.id,
+        wpm,
+        accuracy,
+        mode,
+        timer: timer ?? null,
+        quote_id: quote?.id ?? null,
+      });
+
+      if (error) {
+        console.error("[typing_results] insert failed:", error.message);
+        return;
+      }
+
+      if (timer !== null && previousBest !== null && wpm > previousBest) {
+        setIsNewBest(true);
+      }
+    }
+
+    saveResultAndCheckBest();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -441,6 +472,12 @@ export default function ResultsScreen({
             sub={`${incorrectChars} errors`}
           />
         </div>
+
+        {isNewBest && (
+          <p className="font-mono text-sm text-accent font-semibold tracking-wide fade-in -mt-4">
+            new personal best!
+          </p>
+        )}
 
         {/* Quote attribution */}
         {quote && (

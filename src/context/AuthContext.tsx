@@ -73,6 +73,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Initial session is already handled by getSession() above.
       if (event === "INITIAL_SESSION") return;
 
+      // Supabase silently refreshes the session token on tab focus, firing
+      // TOKEN_REFRESHED/USER_UPDATED for the same user. Update the user
+      // reference but skip the loading flash and profile refetch — nothing
+      // user-facing has changed.
+      if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        setUser(session?.user ?? null);
+        return;
+      }
+
       const u = session?.user ?? null;
       setUser(u);
       if (u) {
